@@ -11,6 +11,7 @@ import {
   pointsEqual,
   type HexCoord
 } from '../core/utils.js';
+import { generateMapFromVisualization } from './mapgenBridge.js';
 
 const HEX_SIZE = 50; // Visual size for rendering
 
@@ -231,8 +232,6 @@ export function generateExpandedHexMap(
   size: number = 30,
   seed?: string | number
 ): MapData {
-  return generateRegularHexMap({
-    seed,
-    targetTileCount: size
-  });
+  // Use new map generation with erosion (3 rounds for organic coastlines)
+  return generateMapFromVisualization('expanded-hex', size, 3, seed || Date.now());
 }

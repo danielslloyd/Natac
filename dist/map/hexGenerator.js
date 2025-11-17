@@ -1,6 +1,7 @@
 // Regular hexagonal map generator for Catan-like boards
 import { TileShape, Resource } from '../models/types.js';
 import { generateId, SeededRandom, hexToPixel, hexCorners, hexSpiral } from '../core/utils.js';
+import { generateMapFromVisualization } from './mapgenBridge.js';
 const HEX_SIZE = 50; // Visual size for rendering
 export function generateRegularHexMap(params) {
     // Calculate hex radius from target tile count
@@ -177,9 +178,7 @@ export function generateStandardCatanMap(seed) {
     });
 }
 export function generateExpandedHexMap(size = 30, seed) {
-    return generateRegularHexMap({
-        seed,
-        targetTileCount: size
-    });
+    // Use new map generation with erosion (3 rounds for organic coastlines)
+    return generateMapFromVisualization('expanded-hex', size, 3, seed || Date.now());
 }
 //# sourceMappingURL=hexGenerator.js.map
