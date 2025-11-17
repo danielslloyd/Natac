@@ -28,70 +28,43 @@ function convertVizDataToMapData(vizData, seed) {
             occupant: null
         };
     });
-    // Create node adjacency map (which nodes are connected by green edges)
-    const nodeAdjacency = new Map();
-    vizData.greenEdges.forEach(edge => {
-        if (!nodeAdjacency.has(edge.from))
-            nodeAdjacency.set(edge.from, new Set());
-        if (!nodeAdjacency.has(edge.to))
-            nodeAdjacency.set(edge.to, new Set());
-        nodeAdjacency.get(edge.from).add(edge.to);
-        nodeAdjacency.get(edge.to).add(edge.from);
-    });
-    // Build tile-to-nodes mapping
-    // Each land tile (red circle) is surrounded by blue nodes (triangle centroids)
-    // We need to find which blue nodes surround each red circle
-    const tileToNodesMap = new Map();
-    // For each land tile, find surrounding nodes
-    // A blue node surrounds a red tile if the tile is one of the Delaunay triangles
-    // that contributed to that node's position (i.e., the tile connects to the node via blackEdges)
-    vizData.redCircles.land.forEach(tile => {
-        const surroundingNodes = [];
-        // Find all blue nodes that this tile connects to via green edges
-        // This is determined by finding triangles that contain this tile vertex
-        // For now, we'll use a spatial approach: find nodes within a reasonable distance
-        // and verify they're connected via the Voronoi structure
-        const tilePos = tile.position;
-        const nearbyNodes = vizData.blueNodes.filter(node => {
-            const dist = Math.sqrt(Math.pow(node.position[0] - tilePos[0], 2) +
-                Math.pow(node.position[1] - tilePos[1], 2));
-            return dist < 150; // Reasonable threshold based on typical tile size
-        });
-        // Sort by angle around tile center to get proper ordering
-        const sortedNodes = nearbyNodes
-            .map(node => {
-            const dx = node.position[0] - tilePos[0];
-            const dy = node.position[1] - tilePos[1];
+    // Create tiles using graph-based boundaries (no spatial approximation!)
+    const tiles = vizData.tiles
+        .filter(tileData => tileData.isLand) // Only include land tiles
+        .map(tileData => {
+        const tileId = generateId('tile');
+        tileIdMap.set(tileData.id, tileId);
+        // Get blue nodes for this tile (already computed in visualization)
+        const tilePos = tileData.position;
+        const sortedNodeIds = tileData.blueNodes
+            .map(blueNodeIdx => {
+            const nodeId = nodeIdMap.get(blueNodeIdx);
+            const blueNode = vizData.blueNodes.find(n => n.id === blueNodeIdx);
+            if (!nodeId || !blueNode)
+                return null;
+            const dx = blueNode.position[0] - tilePos[0];
+            const dy = blueNode.position[1] - tilePos[1];
             const angle = Math.atan2(dy, dx);
-            return { id: node.id, angle };
+            return { id: nodeId, angle };
         })
+            .filter((n) => n !== null)
             .sort((a, b) => a.angle - b.angle)
             .map(n => n.id);
-        tileToNodesMap.set(tile.id, sortedNodes);
-    });
-    // Create tiles
-    const tiles = vizData.redCircles.land.map(tile => {
-        const tileId = generateId('tile');
-        tileIdMap.set(tile.id, tileId);
-        const nodeIds = tileToNodesMap.get(tile.id) || [];
-        const gameNodeIds = nodeIds.map(vizNodeId => nodeIdMap.get(vizNodeId)).filter(Boolean);
         // Determine shape based on number of nodes
-        const shape = gameNodeIds.length;
+        const shape = sortedNodeIds.length;
         // Create polygon points from surrounding nodes
-        const polygonPoints = nodeIds.map(vizNodeId => {
+        const polygonPoints = tileData.blueNodes.map(vizNodeId => {
             const node = vizData.blueNodes.find(n => n.id === vizNodeId);
-            return node ? node.position : tile.position;
+            return node ? node.position : tileData.position;
         });
-        // Create edge IDs (will fill in later)
-        const edgeIds = [];
         return {
             id: tileId,
             shape,
             polygonPoints,
             resource: Resource.WOOD, // Will assign properly later
             diceNumber: null, // Will assign later
-            edges: edgeIds, // Will fill in after creating edges
-            nodes: gameNodeIds,
+            edges: [], // Will fill in after creating edges
+            nodes: sortedNodeIds,
             robberPresent: false
         };
     });

@@ -1733,22 +1733,47 @@
                 }
             }
 
-            // Collect all relevant tiles
+            // Collect all relevant tiles (land + water) with graph-based boundaries
             const allGameTiles = new Set([...landTiles, ...waterTiles]);
+            const tileDataList = [];
 
-            // Collect red circles (tile centers)
-            const redCircles = {
-                land: Array.from(landTiles).map(i => ({ id: i, position: points[i] })),
-                water: Array.from(waterTiles).map(i => ({ id: i, position: points[i] }))
-            };
-
-            // Collect blue nodes (Voronoi vertices connected to game tiles)
-            const relevantBlueNodes = new Set();
             for (const tileIdx of allGameTiles) {
-                for (const triIdx of tiles[tileIdx]) {
+                const trianglesForTile = tiles[tileIdx]; // Delaunay triangles containing this red point
+
+                // Find blue nodes: centroids of triangles for this tile
+                const tileBlueNodes = [];
+                for (const triIdx of trianglesForTile) {
                     if (validTriangles.has(triIdx)) {
-                        relevantBlueNodes.add(triIdx);
+                        tileBlueNodes.push(triIdx);
                     }
+                }
+
+                // Find green edges: Voronoi edges where BOTH triangles belong to this tile
+                const tileGreenEdges = [];
+                for (const [tri1, tri2] of voronoiEdges) {
+                    const tri1InTile = trianglesForTile.includes(tri1) && validTriangles.has(tri1);
+                    const tri2InTile = trianglesForTile.includes(tri2) && validTriangles.has(tri2);
+
+                    if (tri1InTile && tri2InTile) {
+                        tileGreenEdges.push([tri1, tri2]);
+                    }
+                }
+
+                tileDataList.push({
+                    id: tileIdx,
+                    position: points[tileIdx],
+                    blueNodes: tileBlueNodes,
+                    greenEdges: tileGreenEdges,
+                    isWater: waterTiles.has(tileIdx),
+                    isLand: landTiles.has(tileIdx)
+                });
+            }
+
+            // Collect all unique blue nodes
+            const relevantBlueNodes = new Set();
+            for (const tileData of tileDataList) {
+                for (const nodeIdx of tileData.blueNodes) {
+                    relevantBlueNodes.add(nodeIdx);
                 }
             }
 
@@ -1757,13 +1782,18 @@
                 position: voronoiVertices[i]
             }));
 
-            // Collect green edges (Voronoi edges between blue nodes)
-            const greenEdges = [];
-            for (const edge of voronoiEdges) {
-                if (relevantBlueNodes.has(edge[0]) && relevantBlueNodes.has(edge[1])) {
-                    greenEdges.push({ from: edge[0], to: edge[1] });
+            // Collect unique green edges from all tiles
+            const uniqueGreenEdges = new Set();
+            for (const tileData of tileDataList) {
+                for (const [tri1, tri2] of tileData.greenEdges) {
+                    const key = `${Math.min(tri1, tri2)}-${Math.max(tri1, tri2)}`;
+                    uniqueGreenEdges.add(key);
                 }
             }
+            const greenEdges = Array.from(uniqueGreenEdges).map(key => {
+                const [tri1, tri2] = key.split('-').map(Number);
+                return { from: tri1, to: tri2 };
+            });
 
             // Collect black edges (Delaunay edges between red nodes)
             const blackEdges = [];
@@ -1776,7 +1806,7 @@
             }
 
             return {
-                redCircles,
+                tiles: tileDataList, // New format with pre-computed boundaries
                 blueNodes,
                 greenEdges,
                 blackEdges,
