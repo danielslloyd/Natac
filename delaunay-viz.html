@@ -828,6 +828,8 @@
         // Main generation and drawing function
         function generatePoints(type) {
             currentPointType = type;
+            lastGeneratedMapData = null; // Clear validation data when regenerating points
+            lastMapMode = null; // Clear last map mode
             ctx.clearRect(0, 0, width, height);
 
             // Generate points
@@ -1335,6 +1337,58 @@
                 ctx.arc(point[0], point[1], 3, 0, 2 * Math.PI);
                 ctx.fill();
             }
+
+            // Build validation data from current state
+            buildValidationDataFromCurrentState(landTiles, waterTiles);
+        }
+
+        // Build validation data from current visualization state
+        function buildValidationDataFromCurrentState(landTiles, waterTiles) {
+            // Collect all relevant tiles
+            const allGameTiles = new Set([...landTiles, ...waterTiles]);
+
+            // Collect blue nodes (Voronoi vertices connected to game tiles)
+            const relevantBlueNodes = new Set();
+            for (const tileIdx of allGameTiles) {
+                for (const triIdx of tiles[tileIdx]) {
+                    if (validTriangles.has(triIdx)) {
+                        relevantBlueNodes.add(triIdx);
+                    }
+                }
+            }
+
+            const blueNodes = Array.from(relevantBlueNodes).map(i => ({
+                id: i,
+                position: voronoiVertices[i]
+            }));
+
+            // Collect green edges (Voronoi edges between blue nodes)
+            const greenEdges = [];
+            for (const edge of voronoiEdges) {
+                if (relevantBlueNodes.has(edge[0]) && relevantBlueNodes.has(edge[1])) {
+                    greenEdges.push({ from: edge[0], to: edge[1] });
+                }
+            }
+
+            // Build visualization data structure
+            const vizData = {
+                redCircles: {
+                    land: Array.from(landTiles).map(i => ({ id: i, position: points[i] })),
+                    water: Array.from(waterTiles).map(i => ({ id: i, position: points[i] }))
+                },
+                blueNodes,
+                greenEdges,
+                blackEdges: [], // Not needed for validation
+                metadata: {
+                    totalLandTiles: landTiles.size,
+                    totalWaterTiles: waterTiles.size,
+                    totalBlueNodes: blueNodes.length,
+                    totalGreenEdges: greenEdges.length
+                }
+            };
+
+            // Convert to validation format and store
+            lastGeneratedMapData = convertToValidationFormat(vizData);
         }
 
         // Generate map data for game logic
