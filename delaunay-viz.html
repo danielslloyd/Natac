@@ -43,6 +43,11 @@
     <div id="controls">
         <button onclick="generatePoints('poisson')">Generate Poisson-Disc Points</button>
         <button onclick="generatePoints('hex')">Generate Hex Grid Points</button>
+        <br><br>
+        <button onclick="generateMap('hex-standard')">Hex Standard Map (1+6+12 tiles)</button>
+        <button onclick="generateMap('hex-expanded')">Hex Expanded Map (N tiles)</button>
+        <button onclick="generateMap('delaunay-expanded')">Delaunay Expanded Map (N tiles)</button>
+        <label>N = <input type="number" id="numTiles" value="30" min="1" max="200" style="width: 60px;"></label>
     </div>
     <canvas id="canvas" width="1200" height="800"></canvas>
 
@@ -62,6 +67,11 @@
         };
 
         let points = [];
+        let triangles = [];
+        let tileNeighbors = [];
+        let centroids = [];
+        let nodeNeighbors = [];
+        let currentPointType = 'hex';
 
         // Poisson-disc sampling
         function poissonDiscSampling(numPoints) {
@@ -274,7 +284,7 @@
             ];
         }
 
-        // Find neighboring triangles (share an edge)
+        // Find neighboring triangles (share an edge) - for nodes
         function findNeighbors(triangles) {
             const neighbors = triangles.map(() => []);
 
@@ -303,8 +313,51 @@
             return neighbors;
         }
 
+        // Find tile neighbors (triangles that share at least one vertex)
+        function findTileNeighbors(triangles) {
+            const neighbors = triangles.map(() => new Set());
+
+            for (let i = 0; i < triangles.length; i++) {
+                const tri1 = triangles[i];
+                const vertices1 = new Set([tri1[0], tri1[1], tri1[2]]);
+
+                for (let j = 0; j < triangles.length; j++) {
+                    if (i === j) continue;
+                    const tri2 = triangles[j];
+
+                    // Check if triangles share any vertex
+                    if (tri2.some(v => vertices1.has(v))) {
+                        neighbors[i].add(j);
+                    }
+                }
+            }
+
+            return neighbors.map(set => Array.from(set));
+        }
+
+        // Find center tile (closest to canvas center)
+        function findCenterTile(centroids) {
+            const cx = width / 2;
+            const cy = height / 2;
+            let minDist = Infinity;
+            let centerIdx = 0;
+
+            for (let i = 0; i < centroids.length; i++) {
+                const dx = centroids[i][0] - cx;
+                const dy = centroids[i][1] - cy;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < minDist) {
+                    minDist = dist;
+                    centerIdx = i;
+                }
+            }
+
+            return centerIdx;
+        }
+
         // Main generation and drawing function
         function generatePoints(type) {
+            currentPointType = type;
             ctx.clearRect(0, 0, width, height);
 
             // Generate points
@@ -328,7 +381,8 @@
             }
 
             // Step B: Compute Delaunay triangulation and draw edges
-            const { triangles } = delaunay(points);
+            const result = delaunay(points);
+            triangles = result.triangles;
 
             if (triangles.length === 0) {
                 alert('Triangulation failed!');
@@ -351,7 +405,7 @@
             }
 
             // Step C: Create nodes at centroids
-            const centroids = [];
+            centroids = [];
             for (const tri of triangles) {
                 const p1 = points[tri[0]];
                 const p2 = points[tri[1]];
@@ -368,13 +422,163 @@
             }
 
             // Step D: Find neighbors and connect centroids
-            const neighbors = findNeighbors(triangles);
+            nodeNeighbors = findNeighbors(triangles);
+            tileNeighbors = findTileNeighbors(triangles);
 
             ctx.strokeStyle = 'green';
             ctx.lineWidth = 1;
             for (let i = 0; i < triangles.length; i++) {
                 const centroid = centroids[i];
-                const neighborIndices = neighbors[i];
+                const neighborIndices = nodeNeighbors[i];
+
+                // Check if triangle has exactly 3 neighbors
+                if (neighborIndices.length !== 3) {
+                    // Draw flag: yellow circle around centroid
+                    ctx.strokeStyle = 'yellow';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(centroid[0], centroid[1], 8, 0, 2 * Math.PI);
+                    ctx.stroke();
+                    ctx.strokeStyle = 'green';
+                    ctx.lineWidth = 1;
+                }
+
+                // Draw connections to neighbors
+                for (const neighborIdx of neighborIndices) {
+                    if (neighborIdx > i) { // Draw each edge only once
+                        const neighborCentroid = centroids[neighborIdx];
+                        ctx.beginPath();
+                        ctx.moveTo(centroid[0], centroid[1]);
+                        ctx.lineTo(neighborCentroid[0], neighborCentroid[1]);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
+        // Generate map with land and water tiles
+        function generateMap(mode) {
+            if (triangles.length === 0) {
+                alert('Please generate points first!');
+                return;
+            }
+
+            const centerTile = findCenterTile(centroids);
+            const landTiles = new Set();
+            const numTiles = parseInt(document.getElementById('numTiles').value);
+
+            if (mode === 'hex-standard') {
+                // Center + 6 neighbors + 12 neighbors
+                landTiles.add(centerTile);
+
+                // Add first ring (6 neighbors)
+                const ring1 = tileNeighbors[centerTile];
+                ring1.forEach(t => landTiles.add(t));
+
+                // Add second ring (12 neighbors)
+                const ring2 = new Set();
+                ring1.forEach(t => {
+                    tileNeighbors[t].forEach(n => {
+                        if (!landTiles.has(n)) {
+                            ring2.add(n);
+                        }
+                    });
+                });
+                ring2.forEach(t => landTiles.add(t));
+
+            } else if (mode === 'hex-expanded' || mode === 'delaunay-expanded') {
+                // Random propagation from center
+                landTiles.add(centerTile);
+                const frontier = [centerTile];
+
+                while (landTiles.size < numTiles && frontier.length > 0) {
+                    const randomIdx = Math.floor(Math.random() * frontier.length);
+                    const current = frontier[randomIdx];
+                    frontier.splice(randomIdx, 1);
+
+                    // Get neighbors
+                    const neighbors = mode === 'hex-expanded'
+                        ? tileNeighbors[current].filter(n => {
+                            // For hex mode, only consider edge-sharing neighbors
+                            return nodeNeighbors[current].includes(n);
+                          })
+                        : tileNeighbors[current];
+
+                    // Shuffle and add neighbors
+                    const shuffled = neighbors.sort(() => Math.random() - 0.5);
+                    for (const neighbor of shuffled) {
+                        if (!landTiles.has(neighbor) && landTiles.size < numTiles) {
+                            landTiles.add(neighbor);
+                            frontier.push(neighbor);
+                        }
+                    }
+                }
+            }
+
+            // Determine water tiles (neighbors of land tiles)
+            const waterTiles = new Set();
+            landTiles.forEach(tile => {
+                tileNeighbors[tile].forEach(neighbor => {
+                    if (!landTiles.has(neighbor)) {
+                        waterTiles.add(neighbor);
+                    }
+                });
+            });
+
+            // Redraw everything with colors
+            ctx.clearRect(0, 0, width, height);
+
+            // Draw triangles with fill colors
+            for (let i = 0; i < triangles.length; i++) {
+                const tri = triangles[i];
+                const p1 = points[tri[0]];
+                const p2 = points[tri[1]];
+                const p3 = points[tri[2]];
+
+                // Determine color
+                if (landTiles.has(i)) {
+                    ctx.fillStyle = 'rgba(34, 139, 34, 0.3)'; // Green land
+                } else if (waterTiles.has(i)) {
+                    ctx.fillStyle = 'rgba(30, 144, 255, 0.3)'; // Blue water
+                } else {
+                    ctx.fillStyle = 'rgba(200, 200, 200, 0.1)'; // Gray void
+                }
+
+                ctx.beginPath();
+                ctx.moveTo(p1[0], p1[1]);
+                ctx.lineTo(p2[0], p2[1]);
+                ctx.lineTo(p3[0], p3[1]);
+                ctx.closePath();
+                ctx.fill();
+
+                // Draw triangle edges
+                ctx.strokeStyle = 'black';
+                ctx.lineWidth = 0.5;
+                ctx.stroke();
+            }
+
+            // Draw points as red circles
+            ctx.fillStyle = 'red';
+            for (const point of points) {
+                ctx.beginPath();
+                ctx.arc(point[0], point[1], 3, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+
+            // Draw centroids as blue circles
+            ctx.fillStyle = 'blue';
+            for (const centroid of centroids) {
+                ctx.beginPath();
+                ctx.arc(centroid[0], centroid[1], 2, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+
+            // Draw edges (connections between node neighbors)
+            ctx.strokeStyle = 'green';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < triangles.length; i++) {
+                const centroid = centroids[i];
+                const neighborIndices = nodeNeighbors[i];
 
                 // Check if triangle has exactly 3 neighbors
                 if (neighborIndices.length !== 3) {
