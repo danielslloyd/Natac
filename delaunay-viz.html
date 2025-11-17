@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Delaunay Triangulation Visualization</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #f0f0f0;
+        }
+        #controls {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button {
+            padding: 10px 20px;
+            margin-right: 10px;
+            font-size: 14px;
+            cursor: pointer;
+            border: none;
+            background: #4CAF50;
+            color: white;
+            border-radius: 3px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        canvas {
+            background: white;
+            border: 1px solid #ccc;
+            display: block;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <button onclick="generatePoints('poisson')">Generate Poisson-Disc Points</button>
+        <button onclick="generatePoints('hex')">Generate Hex Grid Points</button>
+    </div>
+    <canvas id="canvas" width="1200" height="800"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+        const margin = 20;
+
+        // Bounding box
+        const bounds = {
+            x: margin,
+            y: margin,
+            width: width - 2 * margin,
+            height: height - 2 * margin
+        };
+
+        let points = [];
+
+        // Poisson-disc sampling
+        function poissonDiscSampling(numPoints) {
+            const minDistance = Math.sqrt((bounds.width * bounds.height) / numPoints) * 0.8;
+            const cellSize = minDistance / Math.sqrt(2);
+            const gridWidth = Math.ceil(bounds.width / cellSize);
+            const gridHeight = Math.ceil(bounds.height / cellSize);
+            const grid = new Array(gridWidth * gridHeight).fill(null);
+            const active = [];
+            const points = [];
+
+            function getGridIndex(x, y) {
+                const col = Math.floor((x - bounds.x) / cellSize);
+                const row = Math.floor((y - bounds.y) / cellSize);
+                return row * gridWidth + col;
+            }
+
+            function isValid(x, y) {
+                if (x < bounds.x || x >= bounds.x + bounds.width ||
+                    y < bounds.y || y >= bounds.y + bounds.height) {
+                    return false;
+                }
+
+                const col = Math.floor((x - bounds.x) / cellSize);
+                const row = Math.floor((y - bounds.y) / cellSize);
+
+                for (let r = Math.max(0, row - 2); r <= Math.min(gridHeight - 1, row + 2); r++) {
+                    for (let c = Math.max(0, col - 2); c <= Math.min(gridWidth - 1, col + 2); c++) {
+                        const idx = r * gridWidth + c;
+                        if (grid[idx] !== null) {
+                            const other = grid[idx];
+                            const dx = x - other[0];
+                            const dy = y - other[1];
+                            if (Math.sqrt(dx * dx + dy * dy) < minDistance) {
+                                return false;
+                            }
+                        }
+                    }
+                }
+                return true;
+            }
+
+            // Start with random point
+            const startX = bounds.x + Math.random() * bounds.width;
+            const startY = bounds.y + Math.random() * bounds.height;
+            const start = [startX, startY];
+            points.push(start);
+            active.push(start);
+            grid[getGridIndex(startX, startY)] = start;
+
+            // Generate points
+            while (active.length > 0 && points.length < numPoints) {
+                const idx = Math.floor(Math.random() * active.length);
+                const point = active[idx];
+                let found = false;
+
+                for (let i = 0; i < 30; i++) {
+                    const angle = Math.random() * 2 * Math.PI;
+                    const radius = minDistance + Math.random() * minDistance;
+                    const x = point[0] + radius * Math.cos(angle);
+                    const y = point[1] + radius * Math.sin(angle);
+
+                    if (isValid(x, y)) {
+                        const newPoint = [x, y];
+                        points.push(newPoint);
+                        active.push(newPoint);
+                        grid[getGridIndex(x, y)] = newPoint;
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found) {
+                    active.splice(idx, 1);
+                }
+            }
+
+            return points;
+        }
+
+        // Hex grid generation
+        function generateHexGrid(numPoints) {
+            const points = [];
+            const area = bounds.width * bounds.height;
+            const spacing = Math.sqrt(area / numPoints) * 1.1;
+            const rowHeight = spacing * Math.sqrt(3) / 2;
+
+            let row = 0;
+            for (let y = bounds.y; y < bounds.y + bounds.height && points.length < numPoints; y += rowHeight) {
+                const offset = (row % 2) * spacing / 2;
+                for (let x = bounds.x + offset; x < bounds.x + bounds.width && points.length < numPoints; x += spacing) {
+                    if (x >= bounds.x && x <= bounds.x + bounds.width &&
+                        y >= bounds.y && y <= bounds.y + bounds.height) {
+                        points.push([x, y]);
+                    }
+                }
+                row++;
+            }
+
+            return points.slice(0, numPoints);
+        }
+
+        // Delaunay triangulation (Bowyer-Watson algorithm)
+        function delaunay(points) {
+            if (points.length < 3) return [];
+
+            // Create super-triangle that contains all points
+            const minX = Math.min(...points.map(p => p[0])) - 1000;
+            const minY = Math.min(...points.map(p => p[1])) - 1000;
+            const maxX = Math.max(...points.map(p => p[0])) + 1000;
+            const maxY = Math.max(...points.map(p => p[1])) + 1000;
+
+            const superTriangle = [
+                [minX, minY],
+                [maxX, minY],
+                [(minX + maxX) / 2, maxY]
+            ];
+
+            let triangles = [[0, 1, 2]];
+            const vertices = [...superTriangle, ...points];
+
+            // Add points one at a time
+            for (let i = 0; i < points.length; i++) {
+                const pointIdx = i + 3; // Offset by super-triangle vertices
+                const point = vertices[pointIdx];
+                const badTriangles = [];
+
+                // Find triangles whose circumcircle contains the point
+                for (let j = 0; j < triangles.length; j++) {
+                    const tri = triangles[j];
+                    const [ax, ay] = vertices[tri[0]];
+                    const [bx, by] = vertices[tri[1]];
+                    const [cx, cy] = vertices[tri[2]];
+
+                    if (inCircumcircle(point[0], point[1], ax, ay, bx, by, cx, cy)) {
+                        badTriangles.push(j);
+                    }
+                }
+
+                // Find boundary edges
+                const polygon = [];
+                for (const triIdx of badTriangles) {
+                    const tri = triangles[triIdx];
+                    const edges = [[tri[0], tri[1]], [tri[1], tri[2]], [tri[2], tri[0]]];
+
+                    for (const edge of edges) {
+                        let shared = false;
+                        for (const otherTriIdx of badTriangles) {
+                            if (otherTriIdx === triIdx) continue;
+                            const otherTri = triangles[otherTriIdx];
+                            if (hasEdge(otherTri, edge[0], edge[1])) {
+                                shared = true;
+                                break;
+                            }
+                        }
+                        if (!shared) {
+                            polygon.push(edge);
+                        }
+                    }
+                }
+
+                // Remove bad triangles
+                for (let j = badTriangles.length - 1; j >= 0; j--) {
+                    triangles.splice(badTriangles[j], 1);
+                }
+
+                // Add new triangles
+                for (const edge of polygon) {
+                    triangles.push([edge[0], edge[1], pointIdx]);
+                }
+            }
+
+            // Remove triangles that share vertices with super-triangle
+            triangles = triangles.filter(tri =>
+                tri[0] >= 3 && tri[1] >= 3 && tri[2] >= 3
+            );
+
+            // Adjust indices (remove super-triangle offset)
+            triangles = triangles.map(tri =>
+                tri.map(idx => idx - 3)
+            );
+
+            return { triangles, vertices: points };
+        }
+
+        function inCircumcircle(px, py, ax, ay, bx, by, cx, cy) {
+            const ax_ = ax - px;
+            const ay_ = ay - py;
+            const bx_ = bx - px;
+            const by_ = by - py;
+            const cx_ = cx - px;
+            const cy_ = cy - py;
+
+            return (
+                (ax_ * ax_ + ay_ * ay_) * (bx_ * cy_ - cx_ * by_) -
+                (bx_ * bx_ + by_ * by_) * (ax_ * cy_ - cx_ * ay_) +
+                (cx_ * cx_ + cy_ * cy_) * (ax_ * by_ - bx_ * ay_)
+            ) > 0;
+        }
+
+        function hasEdge(tri, a, b) {
+            return (tri.includes(a) && tri.includes(b));
+        }
+
+        // Calculate triangle centroid
+        function getCentroid(p1, p2, p3) {
+            return [
+                (p1[0] + p2[0] + p3[0]) / 3,
+                (p1[1] + p2[1] + p3[1]) / 3
+            ];
+        }
+
+        // Find neighboring triangles (share an edge)
+        function findNeighbors(triangles) {
+            const neighbors = triangles.map(() => []);
+
+            for (let i = 0; i < triangles.length; i++) {
+                const tri1 = triangles[i];
+                const edges1 = [
+                    [tri1[0], tri1[1]],
+                    [tri1[1], tri1[2]],
+                    [tri1[2], tri1[0]]
+                ];
+
+                for (let j = i + 1; j < triangles.length; j++) {
+                    const tri2 = triangles[j];
+
+                    // Check if triangles share an edge
+                    for (const edge of edges1) {
+                        if (hasEdge(tri2, edge[0], edge[1])) {
+                            neighbors[i].push(j);
+                            neighbors[j].push(i);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            return neighbors;
+        }
+
+        // Main generation and drawing function
+        function generatePoints(type) {
+            ctx.clearRect(0, 0, width, height);
+
+            // Generate points
+            if (type === 'poisson') {
+                points = poissonDiscSampling(500);
+            } else {
+                points = generateHexGrid(500);
+            }
+
+            if (points.length < 3) {
+                alert('Not enough points generated!');
+                return;
+            }
+
+            // Step A: Draw points as red circles
+            ctx.fillStyle = 'red';
+            for (const point of points) {
+                ctx.beginPath();
+                ctx.arc(point[0], point[1], 3, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+
+            // Step B: Compute Delaunay triangulation and draw edges
+            const { triangles } = delaunay(points);
+
+            if (triangles.length === 0) {
+                alert('Triangulation failed!');
+                return;
+            }
+
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 0.5;
+            for (const tri of triangles) {
+                const p1 = points[tri[0]];
+                const p2 = points[tri[1]];
+                const p3 = points[tri[2]];
+
+                ctx.beginPath();
+                ctx.moveTo(p1[0], p1[1]);
+                ctx.lineTo(p2[0], p2[1]);
+                ctx.lineTo(p3[0], p3[1]);
+                ctx.closePath();
+                ctx.stroke();
+            }
+
+            // Step C: Create nodes at centroids
+            const centroids = [];
+            for (const tri of triangles) {
+                const p1 = points[tri[0]];
+                const p2 = points[tri[1]];
+                const p3 = points[tri[2]];
+                centroids.push(getCentroid(p1, p2, p3));
+            }
+
+            // Draw centroids as blue circles
+            ctx.fillStyle = 'blue';
+            for (const centroid of centroids) {
+                ctx.beginPath();
+                ctx.arc(centroid[0], centroid[1], 2, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+
+            // Step D: Find neighbors and connect centroids
+            const neighbors = findNeighbors(triangles);
+
+            ctx.strokeStyle = 'green';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < triangles.length; i++) {
+                const centroid = centroids[i];
+                const neighborIndices = neighbors[i];
+
+                // Check if triangle has exactly 3 neighbors
+                if (neighborIndices.length !== 3) {
+                    // Draw flag: yellow circle around centroid
+                    ctx.strokeStyle = 'yellow';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(centroid[0], centroid[1], 8, 0, 2 * Math.PI);
+                    ctx.stroke();
+                    ctx.strokeStyle = 'green';
+                    ctx.lineWidth = 1;
+                }
+
+                // Draw connections to neighbors
+                for (const neighborIdx of neighborIndices) {
+                    if (neighborIdx > i) { // Draw each edge only once
+                        const neighborCentroid = centroids[neighborIdx];
+                        ctx.beginPath();
+                        ctx.moveTo(centroid[0], centroid[1]);
+                        ctx.lineTo(neighborCentroid[0], neighborCentroid[1]);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
+        // Initialize with hex grid
+        generatePoints('hex');
+    </script>
+</body>
+</html>
