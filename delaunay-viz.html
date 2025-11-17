@@ -511,38 +511,35 @@
             return [cx, cy];
         }
 
-        // Check if there are any 4-sided tiles among eligible tiles
-        function hasFourSidedTiles() {
+        // Find all 4-sided tiles among eligible tiles
+        function getFourSidedTiles() {
+            const fourSided = [];
             for (let i = 0; i < points.length; i++) {
                 if (!validTiles.has(i)) continue;
                 if (ineligibleTiles.has(i)) continue;
 
                 const numNeighbors = tileNeighbors[i].length;
                 if (numNeighbors === 4) {
-                    return true;
+                    fourSided.push(i);
                 }
             }
-            return false;
+            return fourSided;
         }
 
-        // Apply Lloyd's relaxation: move each point to centroid of its Voronoi cell
-        function applyLloydsRelaxation() {
-            const newPoints = [];
+        // Apply Lloyd's relaxation to specific points
+        function applyLloydsRelaxationToPoints(pointsToRelax) {
+            const relaxSet = new Set(pointsToRelax);
+            const newPoints = [...points];
 
-            for (let i = 0; i < points.length; i++) {
+            for (const i of pointsToRelax) {
                 if (!validTiles.has(i) || tiles[i].length < 3) {
-                    // Keep invalid tiles in place
-                    newPoints.push([...points[i]]);
                     continue;
                 }
 
                 // Get the tile's vertices (centroids of triangles containing this point)
                 const tileVertices = tiles[i].map(t => voronoiVertices[t]).filter(v => v !== null);
 
-                if (tileVertices.length < 3) {
-                    newPoints.push([...points[i]]);
-                    continue;
-                }
+                if (tileVertices.length < 3) continue;
 
                 // Order vertices around the center point
                 const center = points[i];
@@ -559,13 +556,122 @@
                     // Keep point within bounds
                     const x = Math.max(bounds.x, Math.min(bounds.x + bounds.width, centroid[0]));
                     const y = Math.max(bounds.y, Math.min(bounds.y + bounds.height, centroid[1]));
-                    newPoints.push([x, y]);
-                } else {
-                    newPoints.push([...points[i]]);
+                    newPoints[i] = [x, y];
                 }
             }
 
             return newPoints;
+        }
+
+        // Merge 4-sided tiles with their closest neighbors
+        function merge4SidedTiles() {
+            const fourSided = getFourSidedTiles();
+            if (fourSided.length === 0) return { merged: false };
+
+            // For each 4-sided tile, find its closest neighbor
+            const closestPairs = [];
+            for (const tile of fourSided) {
+                let closestNeighbor = -1;
+                let minDist = Infinity;
+
+                for (const neighbor of tileNeighbors[tile]) {
+                    const dist = distance(points[tile], points[neighbor]);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        closestNeighbor = neighbor;
+                    }
+                }
+
+                if (closestNeighbor !== -1) {
+                    // Store as sorted pair to avoid duplicates
+                    const pair = tile < closestNeighbor
+                        ? [tile, closestNeighbor]
+                        : [closestNeighbor, tile];
+                    closestPairs.push({ pair, dist: minDist });
+                }
+            }
+
+            // Remove duplicate pairs and sort by distance
+            const uniquePairs = new Map();
+            for (const { pair, dist } of closestPairs) {
+                const key = `${pair[0]},${pair[1]}`;
+                if (!uniquePairs.has(key) || uniquePairs.get(key) > dist) {
+                    uniquePairs.set(key, dist);
+                }
+            }
+
+            if (uniquePairs.size === 0) return { merged: false };
+
+            // Merge pairs
+            const mergedPoints = [];
+            const pointMapping = new Map(); // old index -> new index
+            const deletedPoints = new Set();
+            const mergeLocations = []; // Track where merges happened
+
+            let newIdx = 0;
+            for (let i = 0; i < points.length; i++) {
+                // Check if this point is part of a pair to merge
+                let merged = false;
+                for (const [key] of uniquePairs) {
+                    const [a, b] = key.split(',').map(Number);
+                    if (i === a) {
+                        // Create midpoint
+                        const midpoint = [
+                            (points[a][0] + points[b][0]) / 2,
+                            (points[a][1] + points[b][1]) / 2
+                        ];
+                        mergedPoints.push(midpoint);
+                        pointMapping.set(a, newIdx);
+                        pointMapping.set(b, newIdx);
+                        deletedPoints.add(a);
+                        deletedPoints.add(b);
+                        mergeLocations.push(newIdx);
+                        newIdx++;
+                        merged = true;
+                        break;
+                    } else if (i === b) {
+                        // Already handled by the 'a' case
+                        merged = true;
+                        break;
+                    }
+                }
+
+                if (!merged) {
+                    mergedPoints.push([...points[i]]);
+                    pointMapping.set(i, newIdx);
+                    newIdx++;
+                }
+            }
+
+            return {
+                merged: true,
+                newPoints: mergedPoints,
+                mergeLocations
+            };
+        }
+
+        // Find all points within N connections of target points
+        function findPointsWithinDistance(targetIndices, connectionDistance) {
+            const result = new Set(targetIndices);
+            let frontier = new Set(targetIndices);
+
+            for (let depth = 0; depth < connectionDistance; depth++) {
+                const nextFrontier = new Set();
+                for (const idx of frontier) {
+                    if (idx >= 0 && idx < points.length && tileNeighbors[idx]) {
+                        for (const neighbor of tileNeighbors[idx]) {
+                            if (!result.has(neighbor)) {
+                                result.add(neighbor);
+                                nextFrontier.add(neighbor);
+                            }
+                        }
+                    }
+                }
+                frontier = nextFrontier;
+                if (frontier.size === 0) break;
+            }
+
+            return Array.from(result);
         }
 
         // Main generation and drawing function
@@ -600,26 +706,48 @@
             // Apply Lloyd's relaxation for Poisson mode if enabled
             const useLloyd = document.getElementById('lloydRelaxation').checked;
             if (type === 'poisson' && useLloyd) {
-                const maxIterations = 50;
-                let iteration = 0;
+                let fourSided = getFourSidedTiles();
 
-                while (hasFourSidedTiles() && iteration < maxIterations) {
-                    // Apply relaxation
-                    points = applyLloydsRelaxation();
+                if (fourSided.length > 0) {
+                    console.log(`Found ${fourSided.length} 4-sided tiles, applying merge and relax`);
 
-                    // Recompute triangulation
-                    result = delaunay(points);
-                    triangles = result.triangles;
+                    // Merge 4-sided tiles with their closest neighbors
+                    const mergeResult = merge4SidedTiles();
 
-                    if (triangles.length === 0) break;
+                    if (mergeResult.merged) {
+                        // Update points
+                        points = mergeResult.newPoints;
 
-                    // Rebuild Voronoi
-                    buildVoronoi(points, triangles);
+                        // Recompute triangulation
+                        result = delaunay(points);
+                        triangles = result.triangles;
 
-                    iteration++;
+                        if (triangles.length > 0) {
+                            // Rebuild Voronoi
+                            buildVoronoi(points, triangles);
+
+                            // Find all points within 2 connections of merge locations
+                            const pointsToRelax = findPointsWithinDistance(mergeResult.mergeLocations, 2);
+
+                            console.log(`Relaxing ${pointsToRelax.length} points near merge locations`);
+
+                            // Apply Lloyd's relaxation to nearby points
+                            points = applyLloydsRelaxationToPoints(pointsToRelax);
+
+                            // Final recompute
+                            result = delaunay(points);
+                            triangles = result.triangles;
+
+                            if (triangles.length > 0) {
+                                buildVoronoi(points, triangles);
+                            }
+
+                            // Check results
+                            fourSided = getFourSidedTiles();
+                            console.log(`After merge and relax: ${fourSided.length} 4-sided tiles remain`);
+                        }
+                    }
                 }
-
-                console.log(`Lloyd's relaxation: ${iteration} iterations`);
             }
 
             // Draw black lines (Delaunay edges) - only for valid triangles
