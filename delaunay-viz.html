@@ -37,6 +37,39 @@
             display: block;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
+        #validationResults {
+            margin-top: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: none;
+        }
+        .validation-success {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        .validation-error {
+            color: #f44336;
+            font-weight: bold;
+        }
+        .error-list {
+            margin-top: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .error-item {
+            padding: 5px;
+            margin: 5px 0;
+            background: #ffebee;
+            border-left: 3px solid #f44336;
+        }
+        button.validate-btn {
+            background: #2196F3;
+        }
+        button.validate-btn:hover {
+            background: #0b7dda;
+        }
     </style>
 </head>
 <body>
@@ -50,8 +83,11 @@
         <br>
         <label>N = <input type="number" id="numTiles" value="30" min="1" max="200" style="width: 60px;"></label>
         <label>Y (erosion rounds) = <input type="number" id="erosionRounds" value="5" min="0" max="50" style="width: 50px;"></label>
+        <br><br>
+        <button class="validate-btn" onclick="validateCurrentMap()">🔍 Validate Map</button>
     </div>
     <canvas id="canvas" width="1200" height="800"></canvas>
+    <div id="validationResults"></div>
 
     <script>
         const canvas = document.getElementById('canvas');
@@ -86,6 +122,14 @@
         let waterOnlyTiles = new Set(); // tiles that can only be water (2-ring buffer around ineligible)
         let validTriangles = new Set(); // triangles that pass angle threshold
         let currentPointType = 'hex';
+        let lastMapMode = null; // Track last map mode for redrawing
+
+        // Validation error tracking
+        let validationErrors = {
+            tiles: new Set(),
+            nodes: new Set(),
+            edges: new Set()
+        };
 
         // Poisson-disc sampling
         function poissonDiscSampling(numPoints) {
@@ -906,12 +950,19 @@
             }
 
             // Draw green lines (Voronoi edges / tile boundaries)
-            ctx.strokeStyle = 'green';
-            ctx.lineWidth = 1.5;
-            for (const edge of voronoiEdges) {
+            for (let idx = 0; idx < voronoiEdges.length; idx++) {
+                const edge = voronoiEdges[idx];
                 const v1 = voronoiVertices[edge[0]];
                 const v2 = voronoiVertices[edge[1]];
                 if (v1 && v2) { // Only draw if both vertices are valid
+                    const edgeId = `edge-${idx}`;
+                    if (validationErrors.edges.has(edgeId)) {
+                        ctx.strokeStyle = 'red';
+                        ctx.lineWidth = 3;
+                    } else {
+                        ctx.strokeStyle = 'green';
+                        ctx.lineWidth = 1.5;
+                    }
                     ctx.beginPath();
                     ctx.moveTo(v1[0], v1[1]);
                     ctx.lineTo(v2[0], v2[1]);
@@ -920,12 +971,21 @@
             }
 
             // Draw blue circles (Voronoi vertices / tile corners)
-            ctx.fillStyle = 'blue';
-            for (const vertex of voronoiVertices) {
+            for (let idx = 0; idx < voronoiVertices.length; idx++) {
+                const vertex = voronoiVertices[idx];
                 if (vertex) { // Only draw valid vertices
-                    ctx.beginPath();
-                    ctx.arc(vertex[0], vertex[1], 2, 0, 2 * Math.PI);
-                    ctx.fill();
+                    const nodeId = `node-${idx}`;
+                    if (validationErrors.nodes.has(nodeId)) {
+                        ctx.fillStyle = 'red';
+                        ctx.beginPath();
+                        ctx.arc(vertex[0], vertex[1], 5, 0, 2 * Math.PI);
+                        ctx.fill();
+                    } else {
+                        ctx.fillStyle = 'blue';
+                        ctx.beginPath();
+                        ctx.arc(vertex[0], vertex[1], 2, 0, 2 * Math.PI);
+                        ctx.fill();
+                    }
                 }
             }
 
@@ -960,6 +1020,8 @@
 
         // Generate map with land and water tiles
         function generateMap(mode) {
+            lastMapMode = mode; // Store for redrawing after validation
+
             if (triangles.length === 0) {
                 alert('Please generate points first!');
                 return;
@@ -1168,7 +1230,10 @@
                 });
 
                 // Determine color
-                if (landTiles.has(i)) {
+                const tileId = `tile-${i}`;
+                if (validationErrors.tiles.has(tileId)) {
+                    ctx.fillStyle = 'rgba(255, 0, 0, 0.7)'; // Red for validation errors
+                } else if (landTiles.has(i)) {
                     ctx.fillStyle = 'rgba(34, 139, 34, 0.5)'; // Green land
                 } else if (waterTiles.has(i)) {
                     ctx.fillStyle = 'rgba(30, 144, 255, 0.5)'; // Blue water
@@ -1205,12 +1270,19 @@
             }
 
             // Draw green lines (Voronoi edges / tile boundaries)
-            ctx.strokeStyle = 'green';
-            ctx.lineWidth = 1.5;
-            for (const edge of voronoiEdges) {
+            for (let idx = 0; idx < voronoiEdges.length; idx++) {
+                const edge = voronoiEdges[idx];
                 const v1 = voronoiVertices[edge[0]];
                 const v2 = voronoiVertices[edge[1]];
                 if (v1 && v2) { // Only draw if both vertices are valid
+                    const edgeId = `edge-${idx}`;
+                    if (validationErrors.edges.has(edgeId)) {
+                        ctx.strokeStyle = 'red';
+                        ctx.lineWidth = 3;
+                    } else {
+                        ctx.strokeStyle = 'green';
+                        ctx.lineWidth = 1.5;
+                    }
                     ctx.beginPath();
                     ctx.moveTo(v1[0], v1[1]);
                     ctx.lineTo(v2[0], v2[1]);
@@ -1219,12 +1291,21 @@
             }
 
             // Draw blue circles (Voronoi vertices / tile corners)
-            ctx.fillStyle = 'blue';
-            for (const vertex of voronoiVertices) {
+            for (let idx = 0; idx < voronoiVertices.length; idx++) {
+                const vertex = voronoiVertices[idx];
                 if (vertex) { // Only draw valid vertices
-                    ctx.beginPath();
-                    ctx.arc(vertex[0], vertex[1], 2, 0, 2 * Math.PI);
-                    ctx.fill();
+                    const nodeId = `node-${idx}`;
+                    if (validationErrors.nodes.has(nodeId)) {
+                        ctx.fillStyle = 'red';
+                        ctx.beginPath();
+                        ctx.arc(vertex[0], vertex[1], 5, 0, 2 * Math.PI);
+                        ctx.fill();
+                    } else {
+                        ctx.fillStyle = 'blue';
+                        ctx.beginPath();
+                        ctx.arc(vertex[0], vertex[1], 2, 0, 2 * Math.PI);
+                        ctx.fill();
+                    }
                 }
             }
 
@@ -1572,6 +1653,352 @@
 
         // Export function for external use
         window.generateMapData = generateMapData;
+
+        // Initialize with hex grid
+        generatePoints('hex');
+
+        // ============================================================================
+        // Map Validation (ported from validator.ts)
+        // ============================================================================
+
+        function validateCurrentMap() {
+            // Clear previous errors
+            validationErrors = {
+                tiles: new Set(),
+                nodes: new Set(),
+                edges: new Set()
+            };
+
+            const errors = [];
+            const resultsDiv = document.getElementById('validationResults');
+            resultsDiv.style.display = 'block';
+
+            // Build mapData from current visualization state
+            const mapData = buildMapDataForValidation();
+
+            if (!mapData) {
+                resultsDiv.innerHTML = '<div class="validation-error">❌ No map generated yet</div>';
+                return;
+            }
+
+            const { tiles: mapTiles, nodes: mapNodes, edges: mapEdges } = mapData;
+
+            // Create lookup maps
+            const tileMap = new Map(mapTiles.map(t => [t.id, t]));
+            const nodeMap = new Map(mapNodes.map(n => [n.id, n]));
+            const edgeMap = new Map(mapEdges.map(e => [e.id, e]));
+
+            // 1. Check unique IDs
+            if (new Set(mapTiles.map(t => t.id)).size !== mapTiles.length) {
+                errors.push('❌ Duplicate tile IDs found');
+            }
+            if (new Set(mapNodes.map(n => n.id)).size !== mapNodes.length) {
+                errors.push('❌ Duplicate node IDs found');
+            }
+            if (new Set(mapEdges.map(e => e.id)).size !== mapEdges.length) {
+                errors.push('❌ Duplicate edge IDs found');
+            }
+
+            // 2. Verify vertex-degree invariant (each node touches 1-3 tiles)
+            mapNodes.forEach(node => {
+                if (node.tiles.length < 1 || node.tiles.length > 3) {
+                    errors.push(`❌ Node ${node.id} has ${node.tiles.length} tiles (must be 1-3)`);
+                    validationErrors.nodes.add(node.id);
+                }
+                // Verify referenced tiles exist
+                node.tiles.forEach(tileId => {
+                    if (!tileMap.has(tileId)) {
+                        errors.push(`❌ Node ${node.id} references non-existent tile ${tileId}`);
+                        validationErrors.nodes.add(node.id);
+                    }
+                });
+            });
+
+            // 3. Verify tile references
+            mapTiles.forEach(tile => {
+                // Check nodes exist and reference back
+                tile.nodes.forEach(nodeId => {
+                    const node = nodeMap.get(nodeId);
+                    if (!node) {
+                        errors.push(`❌ Tile ${tile.id} references non-existent node ${nodeId}`);
+                        validationErrors.tiles.add(tile.id);
+                    } else if (!node.tiles.includes(tile.id)) {
+                        errors.push(`❌ Tile ${tile.id} → Node ${nodeId} doesn't reference back`);
+                        validationErrors.tiles.add(tile.id);
+                        validationErrors.nodes.add(nodeId);
+                    }
+                });
+
+                // Check edges exist
+                tile.edges.forEach(edgeId => {
+                    if (!edgeMap.has(edgeId)) {
+                        errors.push(`❌ Tile ${tile.id} references non-existent edge ${edgeId}`);
+                        validationErrors.tiles.add(tile.id);
+                    }
+                });
+
+                // Verify shape matches node/edge count
+                if (tile.nodes.length !== tile.shape) {
+                    errors.push(`❌ Tile ${tile.id}: shape=${tile.shape} but has ${tile.nodes.length} nodes`);
+                    validationErrors.tiles.add(tile.id);
+                }
+                if (tile.edges.length !== tile.shape) {
+                    errors.push(`❌ Tile ${tile.id}: shape=${tile.shape} but has ${tile.edges.length} edges`);
+                    validationErrors.tiles.add(tile.id);
+                }
+
+                // Verify polygon has at least 3 sides
+                if (tile.shape < 3) {
+                    errors.push(`❌ Tile ${tile.id} has invalid shape ${tile.shape} (must be >= 3)`);
+                    validationErrors.tiles.add(tile.id);
+                }
+            });
+
+            // 4. Verify edge references
+            mapEdges.forEach(edge => {
+                const nodeA = nodeMap.get(edge.nodeA);
+                const nodeB = nodeMap.get(edge.nodeB);
+
+                if (!nodeA) {
+                    errors.push(`❌ Edge ${edge.id} references non-existent node ${edge.nodeA}`);
+                    validationErrors.edges.add(edge.id);
+                }
+                if (!nodeB) {
+                    errors.push(`❌ Edge ${edge.id} references non-existent node ${edge.nodeB}`);
+                    validationErrors.edges.add(edge.id);
+                }
+
+                // Check tiles exist
+                if (edge.tileLeft && !tileMap.has(edge.tileLeft)) {
+                    errors.push(`❌ Edge ${edge.id} references non-existent tile ${edge.tileLeft}`);
+                    validationErrors.edges.add(edge.id);
+                }
+                if (edge.tileRight && !tileMap.has(edge.tileRight)) {
+                    errors.push(`❌ Edge ${edge.id} references non-existent tile ${edge.tileRight}`);
+                    validationErrors.edges.add(edge.id);
+                }
+
+                // Verify nodes are different
+                if (edge.nodeA === edge.nodeB) {
+                    errors.push(`❌ Edge ${edge.id} has same node for both endpoints`);
+                    validationErrors.edges.add(edge.id);
+                }
+            });
+
+            // 5. Verify connectivity
+            if (mapTiles.length > 0) {
+                const visited = new Set();
+                const queue = [mapTiles[0].id];
+                visited.add(mapTiles[0].id);
+
+                while (queue.length > 0) {
+                    const currentId = queue.shift();
+                    const current = tileMap.get(currentId);
+
+                    // Find adjacent tiles through shared nodes
+                    const adjacentTiles = new Set();
+                    current.nodes.forEach(nodeId => {
+                        const node = nodeMap.get(nodeId);
+                        if (node) {
+                            node.tiles.forEach(tileId => {
+                                if (tileId !== currentId) {
+                                    adjacentTiles.add(tileId);
+                                }
+                            });
+                        }
+                    });
+
+                    adjacentTiles.forEach(tileId => {
+                        if (!visited.has(tileId)) {
+                            visited.add(tileId);
+                            queue.push(tileId);
+                        }
+                    });
+                }
+
+                if (visited.size !== mapTiles.length) {
+                    errors.push(`❌ Map not fully connected: ${visited.size}/${mapTiles.length} tiles reachable`);
+                    // Mark unreachable tiles
+                    mapTiles.forEach(tile => {
+                        if (!visited.has(tile.id)) {
+                            validationErrors.tiles.add(tile.id);
+                        }
+                    });
+                }
+            }
+
+            // 6. Verify no duplicate edges
+            const edgePairs = new Set();
+            mapEdges.forEach(edge => {
+                const pair1 = `${edge.nodeA}-${edge.nodeB}`;
+                const pair2 = `${edge.nodeB}-${edge.nodeA}`;
+                if (edgePairs.has(pair1) || edgePairs.has(pair2)) {
+                    errors.push(`❌ Duplicate edge between ${edge.nodeA} and ${edge.nodeB}`);
+                    validationErrors.edges.add(edge.id);
+                }
+                edgePairs.add(pair1);
+            });
+
+            // Display results
+            if (errors.length === 0) {
+                resultsDiv.innerHTML = `
+                    <div class="validation-success">✅ Map validation passed!</div>
+                    <div style="margin-top: 10px;">
+                        <strong>Summary:</strong><br>
+                        Tiles: ${mapTiles.length} | Nodes: ${mapNodes.length} | Edges: ${mapEdges.length}
+                    </div>
+                `;
+            } else {
+                resultsDiv.innerHTML = `
+                    <div class="validation-error">❌ Map validation failed with ${errors.length} error(s)</div>
+                    <div class="error-list">
+                        ${errors.map(e => `<div class="error-item">${e}</div>`).join('')}
+                    </div>
+                    <div style="margin-top: 10px; font-style: italic; color: #666;">
+                        Problematic elements are highlighted in red on the canvas
+                    </div>
+                `;
+            }
+
+            // Redraw with error highlights - trigger a regeneration which will use validationErrors
+            if (lastMapMode) {
+                generateMap(lastMapMode);
+            }
+        }
+
+        function buildMapDataForValidation() {
+            // Only validate if we have a generated map
+            if (!lastGeneratedMapData) {
+                return null;
+            }
+
+            return lastGeneratedMapData;
+        }
+
+        // Store last generated map data for validation
+        let lastGeneratedMapData = null;
+
+        // Modify generateMapData to store the result
+        const originalGenerateMapData = window.generateMapData;
+        window.generateMapData = function(mapType, numTiles, erosionRounds) {
+            const result = originalGenerateMapData(mapType, numTiles, erosionRounds);
+
+            // Convert to validation format
+            lastGeneratedMapData = convertToValidationFormat(result);
+
+            return result;
+        };
+
+        function convertToValidationFormat(vizData) {
+            const tiles = [];
+            const nodes = [];
+            const edges = [];
+
+            // Create nodes from blueNodes
+            const nodeIdMap = new Map(); // vizId -> gameId
+            vizData.blueNodes.forEach(blueNode => {
+                const nodeId = `node-${blueNode.id}`;
+                nodeIdMap.set(blueNode.id, nodeId);
+                nodes.push({
+                    id: nodeId,
+                    tiles: [], // Will fill in later
+                    position: blueNode.position
+                });
+            });
+
+            // Create tiles from land redCircles
+            const tileIdMap = new Map(); // vizId -> gameId
+            vizData.redCircles.land.forEach(tile => {
+                const tileId = `tile-${tile.id}`;
+                tileIdMap.set(tile.id, tileId);
+
+                // Find surrounding nodes (spatial approach)
+                const tilePos = tile.position;
+                const nearbyNodes = vizData.blueNodes.filter(node => {
+                    const dist = Math.sqrt(
+                        Math.pow(node.position[0] - tilePos[0], 2) +
+                        Math.pow(node.position[1] - tilePos[1], 2)
+                    );
+                    return dist < 150;
+                });
+
+                // Sort by angle
+                const sortedNodeIds = nearbyNodes
+                    .map(node => {
+                        const dx = node.position[0] - tilePos[0];
+                        const dy = node.position[1] - tilePos[1];
+                        const angle = Math.atan2(dy, dx);
+                        return { id: nodeIdMap.get(node.id), angle };
+                    })
+                    .sort((a, b) => a.angle - b.angle)
+                    .map(n => n.id);
+
+                tiles.push({
+                    id: tileId,
+                    shape: sortedNodeIds.length,
+                    nodes: sortedNodeIds,
+                    edges: [], // Will fill in later
+                    position: tilePos
+                });
+            });
+
+            // Update nodes with their tiles
+            tiles.forEach(tile => {
+                tile.nodes.forEach(nodeId => {
+                    const node = nodes.find(n => n.id === nodeId);
+                    if (node) {
+                        node.tiles.push(tile.id);
+                    }
+                });
+            });
+
+            // Create edges from greenEdges
+            const edgeIdMap = new Map();
+            vizData.greenEdges.forEach((vizEdge, idx) => {
+                const nodeA = nodeIdMap.get(vizEdge.from);
+                const nodeB = nodeIdMap.get(vizEdge.to);
+
+                if (!nodeA || !nodeB) return;
+
+                const edgeId = `edge-${idx}`;
+                const edgeKey = `${Math.min(vizEdge.from, vizEdge.to)}-${Math.max(vizEdge.from, vizEdge.to)}`;
+                edgeIdMap.set(edgeKey, edgeId);
+
+                // Find tiles sharing both nodes
+                const commonTiles = tiles.filter(t =>
+                    t.nodes.includes(nodeA) && t.nodes.includes(nodeB)
+                );
+
+                edges.push({
+                    id: edgeId,
+                    nodeA,
+                    nodeB,
+                    tileLeft: commonTiles[0]?.id || null,
+                    tileRight: commonTiles[1]?.id || null
+                });
+            });
+
+            // Update tiles with edges
+            tiles.forEach(tile => {
+                const tileEdges = [];
+                for (let i = 0; i < tile.nodes.length; i++) {
+                    const nodeA = tile.nodes[i];
+                    const nodeB = tile.nodes[(i + 1) % tile.nodes.length];
+
+                    const edge = edges.find(e =>
+                        (e.nodeA === nodeA && e.nodeB === nodeB) ||
+                        (e.nodeA === nodeB && e.nodeB === nodeA)
+                    );
+
+                    if (edge) {
+                        tileEdges.push(edge.id);
+                    }
+                }
+                tile.edges = tileEdges;
+            });
+
+            return { tiles, nodes, edges };
+        }
 
         // Initialize with hex grid
         generatePoints('hex');
