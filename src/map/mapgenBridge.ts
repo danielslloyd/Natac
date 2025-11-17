@@ -146,6 +146,14 @@ function convertVizDataToMapData(
 
   // Filter nodes to only those with exactly 3 tiles (valid Catan nodes)
   const validNodes = nodes.filter(node => node.tiles.length === 3);
+  const validNodeIds = new Set(validNodes.map(n => n.id));
+
+  // Update tiles to only reference valid nodes
+  tiles.forEach(tile => {
+    tile.nodes = tile.nodes.filter(nodeId => validNodeIds.has(nodeId));
+    // Update shape to match actual number of valid nodes
+    tile.shape = tile.nodes.length as TileShape;
+  });
 
   // Create edges from green edges (Voronoi edges = tile boundaries)
   const edges: Edge[] = [];
