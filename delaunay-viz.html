@@ -44,10 +44,14 @@
         <button onclick="generatePoints('poisson')">Generate Poisson-Disc Points</button>
         <button onclick="generatePoints('hex')">Generate Hex Grid Points</button>
         <br><br>
+        <label>Min Angle (deg): <input type="number" id="minAngle" value="20" min="0" max="60" style="width: 50px;"></label>
+        <br><br>
         <button onclick="generateMap('hex-standard')">Hex Standard Map (1+6+12 tiles)</button>
         <button onclick="generateMap('hex-expanded')">Hex Expanded Map (N tiles)</button>
         <button onclick="generateMap('delaunay-expanded')">Delaunay Expanded Map (N tiles)</button>
+        <br>
         <label>N = <input type="number" id="numTiles" value="30" min="1" max="200" style="width: 60px;"></label>
+        <label>Y (erosion rounds) = <input type="number" id="erosionRounds" value="5" min="0" max="50" style="width: 50px;"></label>
     </div>
     <canvas id="canvas" width="1200" height="800"></canvas>
 
@@ -69,11 +73,13 @@
         let points = [];
         let triangles = [];
         let tileNeighbors = [];
-        let voronoiVertices = []; // circumcenters (blue nodes)
+        let voronoiVertices = []; // centroids (blue nodes)
         let voronoiEdges = []; // green lines
         let tiles = []; // tile data for each red point
         let validTiles = new Set(); // tiles with complete Voronoi cells
         let edgeTiles = new Set(); // tiles on boundary
+        let ineligibleTiles = new Set(); // tiles ineligible for land propagation
+        let validTriangles = new Set(); // triangles that pass angle threshold
         let currentPointType = 'hex';
 
         // Poisson-disc sampling
@@ -287,6 +293,25 @@
             ];
         }
 
+        // Calculate angle in degrees at vertex B in triangle ABC
+        function getAngle(a, b, c) {
+            const ba = [a[0] - b[0], a[1] - b[1]];
+            const bc = [c[0] - b[0], c[1] - b[1]];
+            const dotProduct = ba[0] * bc[0] + ba[1] * bc[1];
+            const magBA = Math.sqrt(ba[0] * ba[0] + ba[1] * ba[1]);
+            const magBC = Math.sqrt(bc[0] * bc[0] + bc[1] * bc[1]);
+            const cosAngle = dotProduct / (magBA * magBC);
+            return Math.acos(Math.max(-1, Math.min(1, cosAngle))) * 180 / Math.PI;
+        }
+
+        // Check if triangle has all angles above threshold
+        function isTriangleValid(p1, p2, p3, minAngleDeg) {
+            const angle1 = getAngle(p2, p1, p3);
+            const angle2 = getAngle(p1, p2, p3);
+            const angle3 = getAngle(p1, p3, p2);
+            return angle1 >= minAngleDeg && angle2 >= minAngleDeg && angle3 >= minAngleDeg;
+        }
+
         // Find neighboring triangles (share an edge) - for nodes
         function findNeighbors(triangles) {
             const neighbors = triangles.map(() => []);
@@ -318,23 +343,34 @@
 
         // Build Voronoi diagram and tile structure
         function buildVoronoi(points, triangles) {
-            // Calculate centroids (blue nodes)
+            const minAngleDeg = parseFloat(document.getElementById('minAngle').value);
+
+            // Check triangle validity and calculate centroids (blue nodes)
+            validTriangles = new Set();
             voronoiVertices = [];
-            for (const tri of triangles) {
+            for (let i = 0; i < triangles.length; i++) {
+                const tri = triangles[i];
                 const p1 = points[tri[0]];
                 const p2 = points[tri[1]];
                 const p3 = points[tri[2]];
-                voronoiVertices.push(getCentroid(p1, p2, p3));
+
+                if (isTriangleValid(p1, p2, p3, minAngleDeg)) {
+                    validTriangles.add(i);
+                    voronoiVertices.push(getCentroid(p1, p2, p3));
+                } else {
+                    voronoiVertices.push(null); // Placeholder for invalid triangles
+                }
             }
 
             // Find triangle neighbors (share an edge)
             const triangleNeighbors = findNeighbors(triangles);
 
-            // Build Voronoi edges (green lines) - connect centroids of adjacent triangles
+            // Build Voronoi edges (green lines) - connect centroids of adjacent valid triangles
             voronoiEdges = [];
             for (let i = 0; i < triangles.length; i++) {
+                if (!validTriangles.has(i)) continue;
                 for (const j of triangleNeighbors[i]) {
-                    if (j > i) { // Each edge only once
+                    if (j > i && validTriangles.has(j)) { // Both triangles must be valid
                         voronoiEdges.push([i, j]);
                     }
                 }
@@ -345,19 +381,20 @@
             tileNeighbors = [];
             validTiles = new Set();
             edgeTiles = new Set();
+            ineligibleTiles = new Set();
 
             for (let i = 0; i < points.length; i++) {
-                // Find all triangles containing point i
+                // Find all valid triangles containing point i
                 const trianglesWithPoint = [];
                 for (let t = 0; t < triangles.length; t++) {
-                    if (triangles[t].includes(i)) {
+                    if (triangles[t].includes(i) && validTriangles.has(t)) {
                         trianglesWithPoint.push(t);
                     }
                 }
 
                 tiles.push(trianglesWithPoint);
 
-                // Find Delaunay neighbors: points connected by Delaunay edges (black lines)
+                // Find Delaunay neighbors: points connected by Delaunay edges from valid triangles
                 const delaunayNeighbors = new Set();
                 for (const t of trianglesWithPoint) {
                     for (const v of triangles[t]) {
@@ -372,14 +409,14 @@
                 const voronoiNeighbors = new Set();
                 for (const neighbor of delaunayNeighbors) {
                     // Check if this neighbor shares a Voronoi edge
-                    // They share a Voronoi edge if there are two triangles that both contain i and neighbor
-                    let sharedTriangles = 0;
+                    // They share a Voronoi edge if there are two valid triangles that both contain i and neighbor
+                    let sharedValidTriangles = 0;
                     for (const t of trianglesWithPoint) {
                         if (triangles[t].includes(neighbor)) {
-                            sharedTriangles++;
+                            sharedValidTriangles++;
                         }
                     }
-                    if (sharedTriangles >= 2) {
+                    if (sharedValidTriangles >= 2) {
                         voronoiNeighbors.add(neighbor);
                     }
                 }
@@ -397,6 +434,11 @@
                     if (numVoronoiNeighbors < numDelaunayEdges) {
                         edgeTiles.add(i);
                     }
+
+                    // Ineligible tiles: N valid edges but fewer than N valid neighbors
+                    if (numVoronoiNeighbors < numDelaunayEdges) {
+                        ineligibleTiles.add(i);
+                    }
                 }
             }
         }
@@ -409,7 +451,7 @@
             let centerIdx = 0;
 
             for (let i = 0; i < points.length; i++) {
-                if (!validTiles.has(i) || edgeTiles.has(i)) continue;
+                if (!validTiles.has(i) || ineligibleTiles.has(i)) continue;
                 const dx = points[i][0] - cx;
                 const dy = points[i][1] - cy;
                 const dist = Math.sqrt(dx * dx + dy * dy);
@@ -420,6 +462,13 @@
             }
 
             return centerIdx;
+        }
+
+        // Calculate distance between two points
+        function distance(p1, p2) {
+            const dx = p1[0] - p2[0];
+            const dy = p1[1] - p2[1];
+            return Math.sqrt(dx * dx + dy * dy);
         }
 
         // Main generation and drawing function
@@ -451,10 +500,12 @@
             // Build Voronoi diagram and tile structure
             buildVoronoi(points, triangles);
 
-            // Draw black lines (Delaunay edges)
+            // Draw black lines (Delaunay edges) - only for valid triangles
             ctx.strokeStyle = 'black';
             ctx.lineWidth = 0.5;
-            for (const tri of triangles) {
+            for (let i = 0; i < triangles.length; i++) {
+                if (!validTriangles.has(i)) continue;
+                const tri = triangles[i];
                 const p1 = points[tri[0]];
                 const p2 = points[tri[1]];
                 const p3 = points[tri[2]];
@@ -473,18 +524,22 @@
             for (const edge of voronoiEdges) {
                 const v1 = voronoiVertices[edge[0]];
                 const v2 = voronoiVertices[edge[1]];
-                ctx.beginPath();
-                ctx.moveTo(v1[0], v1[1]);
-                ctx.lineTo(v2[0], v2[1]);
-                ctx.stroke();
+                if (v1 && v2) { // Only draw if both vertices are valid
+                    ctx.beginPath();
+                    ctx.moveTo(v1[0], v1[1]);
+                    ctx.lineTo(v2[0], v2[1]);
+                    ctx.stroke();
+                }
             }
 
             // Draw blue circles (Voronoi vertices / tile corners)
             ctx.fillStyle = 'blue';
             for (const vertex of voronoiVertices) {
-                ctx.beginPath();
-                ctx.arc(vertex[0], vertex[1], 2, 0, 2 * Math.PI);
-                ctx.fill();
+                if (vertex) { // Only draw valid vertices
+                    ctx.beginPath();
+                    ctx.arc(vertex[0], vertex[1], 2, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
             }
 
             // Draw red circles (tile centers)
@@ -532,14 +587,14 @@
                 landTiles.add(centerTile);
 
                 // Add first ring (6 neighbors)
-                const ring1 = tileNeighbors[centerTile].filter(t => validTiles.has(t) && !edgeTiles.has(t));
+                const ring1 = tileNeighbors[centerTile].filter(t => validTiles.has(t) && !ineligibleTiles.has(t));
                 ring1.forEach(t => landTiles.add(t));
 
                 // Add second ring (12 neighbors)
                 const ring2 = new Set();
                 ring1.forEach(t => {
                     tileNeighbors[t].forEach(n => {
-                        if (!landTiles.has(n) && validTiles.has(n) && !edgeTiles.has(n)) {
+                        if (!landTiles.has(n) && validTiles.has(n) && !ineligibleTiles.has(n)) {
                             ring2.add(n);
                         }
                     });
@@ -547,7 +602,7 @@
                 ring2.forEach(t => landTiles.add(t));
 
             } else if (mode === 'hex-expanded' || mode === 'delaunay-expanded') {
-                // Random propagation from center (excluding edge tiles)
+                // Random propagation from center (excluding ineligible tiles)
                 landTiles.add(centerTile);
                 const frontier = [centerTile];
 
@@ -556,9 +611,9 @@
                     const current = frontier[randomIdx];
                     frontier.splice(randomIdx, 1);
 
-                    // Get valid neighbors (non-edge tiles only)
+                    // Get valid neighbors (non-ineligible tiles only)
                     let neighbors = tileNeighbors[current].filter(n =>
-                        validTiles.has(n) && !edgeTiles.has(n)
+                        validTiles.has(n) && !ineligibleTiles.has(n)
                     );
 
                     // Shuffle and add neighbors
@@ -569,6 +624,73 @@
                             frontier.push(neighbor);
                         }
                     }
+                }
+            }
+
+            // Run erosion/accretion rounds (Y rounds)
+            const erosionRounds = parseInt(document.getElementById('erosionRounds').value);
+            const rootTile = centerTile;
+
+            for (let round = 0; round < erosionRounds; round++) {
+                // Find shore tiles (land with >= 1 non-land neighbor)
+                const shoreTiles = [];
+                landTiles.forEach(tile => {
+                    const hasNonLandNeighbor = tileNeighbors[tile].some(n => !landTiles.has(n));
+                    if (hasNonLandNeighbor) {
+                        shoreTiles.push(tile);
+                    }
+                });
+
+                if (shoreTiles.length === 0) break;
+
+                // Find closest shore tile to root
+                let closestShore = shoreTiles[0];
+                let minDist = distance(points[rootTile], points[closestShore]);
+                for (const tile of shoreTiles) {
+                    const dist = distance(points[rootTile], points[tile]);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        closestShore = tile;
+                    }
+                }
+
+                // Remove closest shore tile from land
+                landTiles.delete(closestShore);
+
+                // Recalculate shore tiles
+                const newShoreTiles = [];
+                landTiles.forEach(tile => {
+                    const hasNonLandNeighbor = tileNeighbors[tile].some(n => !landTiles.has(n));
+                    if (hasNonLandNeighbor) {
+                        newShoreTiles.push(tile);
+                    }
+                });
+
+                if (newShoreTiles.length === 0) {
+                    landTiles.add(closestShore); // Restore if no shore remains
+                    break;
+                }
+
+                // Find furthest shore tile from root
+                let furthestShore = newShoreTiles[0];
+                let maxDist = distance(points[rootTile], points[furthestShore]);
+                for (const tile of newShoreTiles) {
+                    const dist = distance(points[rootTile], points[tile]);
+                    if (dist > maxDist) {
+                        maxDist = dist;
+                        furthestShore = tile;
+                    }
+                }
+
+                // Find non-land neighbors of furthest shore
+                const nonLandNeighbors = tileNeighbors[furthestShore].filter(n =>
+                    !landTiles.has(n) && validTiles.has(n) && !ineligibleTiles.has(n)
+                );
+
+                // Add one non-land neighbor as land (pick randomly if multiple)
+                if (nonLandNeighbors.length > 0) {
+                    const randomNeighbor = nonLandNeighbors[Math.floor(Math.random() * nonLandNeighbors.length)];
+                    landTiles.add(randomNeighbor);
                 }
             }
 
@@ -589,8 +711,10 @@
             for (let i = 0; i < points.length; i++) {
                 if (!validTiles.has(i) || tiles[i].length < 3) continue;
 
-                // Get the tile's vertices (circumcenters of triangles containing this point)
-                const tileVertices = tiles[i].map(t => voronoiVertices[t]);
+                // Get the tile's vertices (centroids of triangles containing this point)
+                const tileVertices = tiles[i].map(t => voronoiVertices[t]).filter(v => v !== null);
+
+                if (tileVertices.length < 3) continue;
 
                 // Order vertices around the center point
                 const center = points[i];
@@ -619,10 +743,12 @@
                 ctx.fill();
             }
 
-            // Draw black lines (Delaunay edges)
+            // Draw black lines (Delaunay edges) - only for valid triangles
             ctx.strokeStyle = 'black';
             ctx.lineWidth = 0.5;
-            for (const tri of triangles) {
+            for (let i = 0; i < triangles.length; i++) {
+                if (!validTriangles.has(i)) continue;
+                const tri = triangles[i];
                 const p1 = points[tri[0]];
                 const p2 = points[tri[1]];
                 const p3 = points[tri[2]];
@@ -641,18 +767,22 @@
             for (const edge of voronoiEdges) {
                 const v1 = voronoiVertices[edge[0]];
                 const v2 = voronoiVertices[edge[1]];
-                ctx.beginPath();
-                ctx.moveTo(v1[0], v1[1]);
-                ctx.lineTo(v2[0], v2[1]);
-                ctx.stroke();
+                if (v1 && v2) { // Only draw if both vertices are valid
+                    ctx.beginPath();
+                    ctx.moveTo(v1[0], v1[1]);
+                    ctx.lineTo(v2[0], v2[1]);
+                    ctx.stroke();
+                }
             }
 
             // Draw blue circles (Voronoi vertices / tile corners)
             ctx.fillStyle = 'blue';
             for (const vertex of voronoiVertices) {
-                ctx.beginPath();
-                ctx.arc(vertex[0], vertex[1], 2, 0, 2 * Math.PI);
-                ctx.fill();
+                if (vertex) { // Only draw valid vertices
+                    ctx.beginPath();
+                    ctx.arc(vertex[0], vertex[1], 2, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
             }
 
             // Draw red circles (tile centers)
