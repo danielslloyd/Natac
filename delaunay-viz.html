@@ -46,6 +46,9 @@
         <br><br>
         <label>Min Angle (deg): <input type="number" id="minAngle" value="20" min="0" max="60" style="width: 50px;"></label>
         <label>Lloyd Relaxation: <input type="checkbox" id="lloydRelaxation" checked></label>
+        <br>
+        <label>Max Area %: <input type="number" id="maxAreaPercent" value="150" min="100" max="300" style="width: 50px;"></label>
+        <label>Min Area %: <input type="number" id="minAreaPercent" value="50" min="10" max="100" style="width: 50px;"></label>
         <br><br>
         <button onclick="generateMap('hex-standard')">Hex Standard Map (1+6+12 tiles)</button>
         <button onclick="generateMap('hex-expanded')">Hex Expanded Map (N tiles)</button>
@@ -511,6 +514,83 @@
             return [cx, cy];
         }
 
+        // Calculate area of a polygon
+        function getPolygonArea(vertices) {
+            if (vertices.length < 3) return 0;
+
+            let area = 0;
+            for (let i = 0; i < vertices.length; i++) {
+                const j = (i + 1) % vertices.length;
+                area += vertices[i][0] * vertices[j][1] - vertices[j][0] * vertices[i][1];
+            }
+
+            return Math.abs(area) / 2;
+        }
+
+        // Find outer ring points (boundary points)
+        function findOuterRingPoints() {
+            const outerRing = new Set();
+
+            for (let i = 0; i < points.length; i++) {
+                if (!validTiles.has(i)) continue;
+
+                // A point is on the outer ring if it's an edge tile
+                if (edgeTiles.has(i) || ineligibleTiles.has(i)) {
+                    outerRing.add(i);
+                }
+            }
+
+            return outerRing;
+        }
+
+        // Calculate tile areas and find outliers
+        function findAreaOutliers() {
+            const areas = [];
+            const tileAreas = new Map();
+
+            // Calculate areas for all valid, eligible tiles
+            for (let i = 0; i < points.length; i++) {
+                if (!validTiles.has(i) || ineligibleTiles.has(i)) continue;
+                if (tiles[i].length < 3) continue;
+
+                const tileVertices = tiles[i].map(t => voronoiVertices[t]).filter(v => v !== null);
+                if (tileVertices.length < 3) continue;
+
+                // Order vertices
+                const center = points[i];
+                tileVertices.sort((a, b) => {
+                    const angleA = Math.atan2(a[1] - center[1], a[0] - center[0]);
+                    const angleB = Math.atan2(b[1] - center[1], b[0] - center[0]);
+                    return angleA - angleB;
+                });
+
+                const area = getPolygonArea(tileVertices);
+                if (area > 0) {
+                    areas.push(area);
+                    tileAreas.set(i, area);
+                }
+            }
+
+            if (areas.length === 0) return [];
+
+            // Calculate median area
+            areas.sort((a, b) => a - b);
+            const medianArea = areas[Math.floor(areas.length / 2)];
+
+            // Find outliers
+            const maxAreaPercent = parseFloat(document.getElementById('maxAreaPercent').value) / 100;
+            const minAreaPercent = parseFloat(document.getElementById('minAreaPercent').value) / 100;
+
+            const outliers = [];
+            for (const [tileIdx, area] of tileAreas) {
+                if (area > medianArea * maxAreaPercent || area < medianArea * minAreaPercent) {
+                    outliers.push(tileIdx);
+                }
+            }
+
+            return outliers;
+        }
+
         // Find all 4-sided tiles among eligible tiles
         function getFourSidedTiles() {
             const fourSided = [];
@@ -526,12 +606,15 @@
             return fourSided;
         }
 
-        // Apply Lloyd's relaxation to specific points
-        function applyLloydsRelaxationToPoints(pointsToRelax) {
+        // Apply Lloyd's relaxation to specific points (excluding outer ring)
+        function applyLloydsRelaxationToPoints(pointsToRelax, outerRing) {
             const relaxSet = new Set(pointsToRelax);
             const newPoints = [...points];
 
             for (const i of pointsToRelax) {
+                // Skip outer ring points
+                if (outerRing.has(i)) continue;
+
                 if (!validTiles.has(i) || tiles[i].length < 3) {
                     continue;
                 }
@@ -706,48 +789,79 @@
             // Apply Lloyd's relaxation for Poisson mode if enabled
             const useLloyd = document.getElementById('lloydRelaxation').checked;
             if (type === 'poisson' && useLloyd) {
+                const maxIterations = 20;
+                let iteration = 0;
                 let fourSided = getFourSidedTiles();
 
-                if (fourSided.length > 0) {
-                    console.log(`Found ${fourSided.length} 4-sided tiles, applying merge and relax`);
+                console.log(`Initial: ${fourSided.length} 4-sided tiles`);
 
-                    // Merge 4-sided tiles with their closest neighbors
-                    const mergeResult = merge4SidedTiles();
+                while ((fourSided.length > 0) && iteration < maxIterations) {
+                    iteration++;
+                    const outerRing = findOuterRingPoints();
 
-                    if (mergeResult.merged) {
-                        // Update points
-                        points = mergeResult.newPoints;
+                    // Step 1: Merge 4-sided tiles with their closest neighbors
+                    if (fourSided.length > 0) {
+                        const mergeResult = merge4SidedTiles();
 
-                        // Recompute triangulation
-                        result = delaunay(points);
-                        triangles = result.triangles;
+                        if (mergeResult.merged) {
+                            points = mergeResult.newPoints;
 
-                        if (triangles.length > 0) {
-                            // Rebuild Voronoi
+                            // Recompute triangulation
+                            result = delaunay(points);
+                            triangles = result.triangles;
+
+                            if (triangles.length === 0) break;
+
                             buildVoronoi(points, triangles);
 
                             // Find all points within 2 connections of merge locations
                             const pointsToRelax = findPointsWithinDistance(mergeResult.mergeLocations, 2);
 
-                            console.log(`Relaxing ${pointsToRelax.length} points near merge locations`);
+                            // Apply Lloyd's relaxation to nearby points (excluding outer ring)
+                            const newOuterRing = findOuterRingPoints();
+                            points = applyLloydsRelaxationToPoints(pointsToRelax, newOuterRing);
 
-                            // Apply Lloyd's relaxation to nearby points
-                            points = applyLloydsRelaxationToPoints(pointsToRelax);
-
-                            // Final recompute
+                            // Recompute
                             result = delaunay(points);
                             triangles = result.triangles;
 
-                            if (triangles.length > 0) {
-                                buildVoronoi(points, triangles);
-                            }
+                            if (triangles.length === 0) break;
 
-                            // Check results
-                            fourSided = getFourSidedTiles();
-                            console.log(`After merge and relax: ${fourSided.length} 4-sided tiles remain`);
+                            buildVoronoi(points, triangles);
                         }
                     }
+
+                    // Step 2: Check for area outliers and relax them
+                    const areaOutliers = findAreaOutliers();
+                    if (areaOutliers.length > 0) {
+                        // Find outliers and their neighbors
+                        const pointsToRelax = new Set(areaOutliers);
+                        for (const outlier of areaOutliers) {
+                            if (tileNeighbors[outlier]) {
+                                for (const neighbor of tileNeighbors[outlier]) {
+                                    pointsToRelax.add(neighbor);
+                                }
+                            }
+                        }
+
+                        // Apply relaxation (excluding outer ring)
+                        const newOuterRing = findOuterRingPoints();
+                        points = applyLloydsRelaxationToPoints(Array.from(pointsToRelax), newOuterRing);
+
+                        // Recompute
+                        result = delaunay(points);
+                        triangles = result.triangles;
+
+                        if (triangles.length === 0) break;
+
+                        buildVoronoi(points, triangles);
+                    }
+
+                    // Check progress
+                    fourSided = getFourSidedTiles();
                 }
+
+                console.log(`Lloyd's relaxation: ${iteration} iterations, ${fourSided.length} 4-sided tiles remain`);
             }
 
             // Draw black lines (Delaunay edges) - only for valid triangles
