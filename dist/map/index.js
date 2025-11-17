@@ -1,12 +1,13 @@
 // Main map generation interface
-import { generateStandardCatanMap, generateExpandedHexMap } from './hexGenerator.js';
+import { generateStandardCatanBoard } from './standardBoard.js';
+import { generateExpandedHexMap } from './hexGenerator.js';
 import { generateDelaunayMap } from './delaunayGenerator.js';
 import { validateMapOrThrow } from './validator.js';
 export function generateMap(options) {
     let mapData;
     switch (options.mapType) {
         case 'standard':
-            mapData = generateStandardCatanMap(options.seed);
+            mapData = generateStandardCatanBoard(options.seed);
             break;
         case 'expanded-hex':
             mapData = generateExpandedHexMap(options.expandedMapSize || 30, options.seed);
@@ -41,6 +42,7 @@ export function generateMap(options) {
     return mapData;
 }
 export * from './validator.js';
+export * from './standardBoard.js';
 export * from './hexGenerator.js';
 export * from './delaunayGenerator.js';
 //# sourceMappingURL=index.js.map
