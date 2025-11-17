@@ -1256,6 +1256,323 @@
             }
         }
 
+        // Generate map data for game logic
+        function generateMapData(mapType, numTiles, erosionRounds) {
+            // Generate points based on map type
+            if (mapType === 'standard-catan') {
+                points = generateHexGrid(500);
+            } else if (mapType === 'expanded-hex') {
+                points = generateHexGrid(500);
+            } else if (mapType === 'delaunay-polygon') {
+                points = poissonDiscSampling(500);
+            }
+
+            if (points.length < 3) {
+                return { error: 'Not enough points generated' };
+            }
+
+            // Compute Delaunay triangulation
+            let result = delaunay(points);
+            triangles = result.triangles;
+
+            if (triangles.length === 0) {
+                return { error: 'Triangulation failed' };
+            }
+
+            // Build Voronoi diagram
+            buildVoronoi(points, triangles);
+
+            // Apply Lloyd's relaxation for Delaunay mode
+            if (mapType === 'delaunay-polygon' && LLOYD_RELAXATION) {
+                const maxIterations = 20;
+                let iteration = 0;
+                let fourSided = getFourSidedTiles();
+
+                console.log(`Initial: ${fourSided.length} 4-sided tiles`);
+
+                while ((fourSided.length > 0) && iteration < maxIterations) {
+                    iteration++;
+                    const outerRing = findOuterRingPoints();
+
+                    if (fourSided.length > 0) {
+                        const mergeResult = merge4SidedTiles();
+
+                        if (mergeResult.merged) {
+                            points = mergeResult.newPoints;
+                            result = delaunay(points);
+                            triangles = result.triangles;
+
+                            if (triangles.length === 0) break;
+
+                            buildVoronoi(points, triangles);
+
+                            const pointsToRelax = findPointsWithinDistance(mergeResult.mergeLocations, 2);
+                            const newOuterRing = findOuterRingPoints();
+                            points = applyLloydsRelaxationToPoints(pointsToRelax, newOuterRing);
+
+                            result = delaunay(points);
+                            triangles = result.triangles;
+
+                            if (triangles.length === 0) break;
+
+                            buildVoronoi(points, triangles);
+                        }
+                    }
+
+                    const areaOutliers = findAreaOutliers();
+                    if (areaOutliers.length > 0) {
+                        const pointsToRelax = new Set(areaOutliers);
+                        for (const outlier of areaOutliers) {
+                            if (tileNeighbors[outlier]) {
+                                for (const neighbor of tileNeighbors[outlier]) {
+                                    pointsToRelax.add(neighbor);
+                                }
+                            }
+                        }
+
+                        const newOuterRing = findOuterRingPoints();
+                        points = applyLloydsRelaxationToPoints(Array.from(pointsToRelax), newOuterRing);
+
+                        result = delaunay(points);
+                        triangles = result.triangles;
+
+                        if (triangles.length === 0) break;
+
+                        buildVoronoi(points, triangles);
+                    }
+
+                    fourSided = getFourSidedTiles();
+                }
+
+                console.log(`Lloyd's relaxation: ${iteration} iterations, ${fourSided.length} 4-sided tiles remain`);
+            }
+
+            // Generate land tiles based on map type
+            const centerTile = findCenterTile();
+            const landTiles = new Set();
+
+            if (mapType === 'standard-catan') {
+                // Center + 6 neighbors + 12 neighbors
+                landTiles.add(centerTile);
+
+                const ring1 = tileNeighbors[centerTile].filter(t => validTiles.has(t) && !waterOnlyTiles.has(t));
+                ring1.forEach(t => landTiles.add(t));
+
+                const ring2 = new Set();
+                ring1.forEach(t => {
+                    tileNeighbors[t].forEach(n => {
+                        if (!landTiles.has(n) && validTiles.has(n) && !waterOnlyTiles.has(n)) {
+                            ring2.add(n);
+                        }
+                    });
+                });
+                ring2.forEach(t => landTiles.add(t));
+
+            } else {
+                // Random propagation for expanded modes
+                landTiles.add(centerTile);
+                const frontier = [centerTile];
+
+                while (landTiles.size < numTiles && frontier.length > 0) {
+                    const randomIdx = Math.floor(Math.random() * frontier.length);
+                    const current = frontier[randomIdx];
+                    frontier.splice(randomIdx, 1);
+
+                    let neighbors = tileNeighbors[current].filter(n =>
+                        validTiles.has(n) && !waterOnlyTiles.has(n)
+                    );
+
+                    const shuffled = neighbors.sort(() => Math.random() - 0.5);
+                    for (const neighbor of shuffled) {
+                        if (!landTiles.has(neighbor) && landTiles.size < numTiles) {
+                            landTiles.add(neighbor);
+                            frontier.push(neighbor);
+                        }
+                    }
+                }
+            }
+
+            // Run erosion/accretion rounds
+            const rootTile = centerTile;
+
+            for (let round = 0; round < erosionRounds; round++) {
+                const shoreTiles = [];
+                landTiles.forEach(tile => {
+                    const hasNonLandNeighbor = tileNeighbors[tile].some(n => !landTiles.has(n));
+                    if (hasNonLandNeighbor) {
+                        shoreTiles.push(tile);
+                    }
+                });
+
+                if (shoreTiles.length === 0) break;
+
+                let closestShore = shoreTiles[0];
+                let minDist = distance(points[rootTile], points[closestShore]);
+                for (const tile of shoreTiles) {
+                    const dist = distance(points[rootTile], points[tile]);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        closestShore = tile;
+                    }
+                }
+
+                landTiles.delete(closestShore);
+
+                const newShoreTiles = [];
+                landTiles.forEach(tile => {
+                    const hasNonLandNeighbor = tileNeighbors[tile].some(n => !landTiles.has(n));
+                    if (hasNonLandNeighbor) {
+                        newShoreTiles.push(tile);
+                    }
+                });
+
+                if (newShoreTiles.length === 0) {
+                    landTiles.add(closestShore);
+                    break;
+                }
+
+                let furthestShore = newShoreTiles[0];
+                let maxDist = distance(points[rootTile], points[furthestShore]);
+                for (const tile of newShoreTiles) {
+                    const dist = distance(points[rootTile], points[tile]);
+                    if (dist > maxDist) {
+                        maxDist = dist;
+                        furthestShore = tile;
+                    }
+                }
+
+                const nonLandNeighbors = tileNeighbors[furthestShore].filter(n =>
+                    !landTiles.has(n) && validTiles.has(n) && !waterOnlyTiles.has(n)
+                );
+
+                if (nonLandNeighbors.length > 0) {
+                    const randomNeighbor = nonLandNeighbors[Math.floor(Math.random() * nonLandNeighbors.length)];
+                    landTiles.add(randomNeighbor);
+                }
+            }
+
+            // Determine water tiles
+            const waterTiles = new Set();
+            landTiles.forEach(tile => {
+                tileNeighbors[tile].forEach(neighbor => {
+                    if (!landTiles.has(neighbor) && validTiles.has(neighbor)) {
+                        waterTiles.add(neighbor);
+                    }
+                });
+            });
+
+            // Post-processing: fix isolated tiles
+            const tilesToFix = [];
+            for (let i = 0; i < points.length; i++) {
+                if (!validTiles.has(i)) continue;
+                if (waterTiles.has(i)) continue;
+
+                const neighbors = tileNeighbors[i];
+                if (neighbors.length < 2) continue;
+
+                const waterNeighborIndices = [];
+                for (let j = 0; j < neighbors.length; j++) {
+                    if (waterTiles.has(neighbors[j])) {
+                        waterNeighborIndices.push(j);
+                    }
+                }
+
+                if (waterNeighborIndices.length < 2) continue;
+
+                let hasNonAdjacentWater = false;
+                for (let a = 0; a < waterNeighborIndices.length; a++) {
+                    for (let b = a + 1; b < waterNeighborIndices.length; b++) {
+                        const idxA = waterNeighborIndices[a];
+                        const idxB = waterNeighborIndices[b];
+                        const diff = Math.abs(idxA - idxB);
+
+                        if (diff !== 1 && diff !== neighbors.length - 1) {
+                            hasNonAdjacentWater = true;
+                            break;
+                        }
+                    }
+                    if (hasNonAdjacentWater) break;
+                }
+
+                if (hasNonAdjacentWater) {
+                    tilesToFix.push(i);
+                }
+            }
+
+            for (const tile of tilesToFix) {
+                const neighbors = tileNeighbors[tile];
+                const allWater = neighbors.every(n => waterTiles.has(n));
+                const hasLand = neighbors.some(n => landTiles.has(n));
+
+                if (allWater) {
+                    waterTiles.add(tile);
+                    landTiles.delete(tile);
+                } else if (hasLand) {
+                    landTiles.add(tile);
+                }
+            }
+
+            // Collect all relevant tiles
+            const allGameTiles = new Set([...landTiles, ...waterTiles]);
+
+            // Collect red circles (tile centers)
+            const redCircles = {
+                land: Array.from(landTiles).map(i => ({ id: i, position: points[i] })),
+                water: Array.from(waterTiles).map(i => ({ id: i, position: points[i] }))
+            };
+
+            // Collect blue nodes (Voronoi vertices connected to game tiles)
+            const relevantBlueNodes = new Set();
+            for (const tileIdx of allGameTiles) {
+                for (const triIdx of tiles[tileIdx]) {
+                    if (validTriangles.has(triIdx)) {
+                        relevantBlueNodes.add(triIdx);
+                    }
+                }
+            }
+
+            const blueNodes = Array.from(relevantBlueNodes).map(i => ({
+                id: i,
+                position: voronoiVertices[i]
+            }));
+
+            // Collect green edges (Voronoi edges between blue nodes)
+            const greenEdges = [];
+            for (const edge of voronoiEdges) {
+                if (relevantBlueNodes.has(edge[0]) && relevantBlueNodes.has(edge[1])) {
+                    greenEdges.push({ from: edge[0], to: edge[1] });
+                }
+            }
+
+            // Collect black edges (Delaunay edges between red nodes)
+            const blackEdges = [];
+            for (const tileIdx of allGameTiles) {
+                for (const neighbor of tileNeighbors[tileIdx]) {
+                    if (allGameTiles.has(neighbor) && tileIdx < neighbor) {
+                        blackEdges.push({ from: tileIdx, to: neighbor });
+                    }
+                }
+            }
+
+            return {
+                redCircles,
+                blueNodes,
+                greenEdges,
+                blackEdges,
+                metadata: {
+                    mapType,
+                    totalLandTiles: landTiles.size,
+                    totalWaterTiles: waterTiles.size,
+                    totalBlueNodes: blueNodes.length,
+                    totalGreenEdges: greenEdges.length,
+                    totalBlackEdges: blackEdges.length
+                }
+            };
+        }
+
+        // Export function for external use
+        window.generateMapData = generateMapData;
+
         // Initialize with hex grid
         generatePoints('hex');
     </script>
