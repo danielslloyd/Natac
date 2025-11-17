@@ -21,16 +21,18 @@ const STANDARD_HEX_COORDS = [
 
 const HEX_SIZE = 50;
 
+// Flat-top hex orientation (standard for Catan)
 function axialToPixel(q: number, r: number): [number, number] {
-  const x = HEX_SIZE * (3/2 * q);
-  const y = HEX_SIZE * (Math.sqrt(3)/2 * q + Math.sqrt(3) * r);
+  const x = HEX_SIZE * (Math.sqrt(3) * q + Math.sqrt(3)/2 * r);
+  const y = HEX_SIZE * (3/2 * r);
   return [x, y];
 }
 
+// Flat-top hex corners (6 corners, starting from right, counter-clockwise)
 function hexCorners(center: [number, number]): [number, number][] {
   const corners: [number, number][] = [];
   for (let i = 0; i < 6; i++) {
-    const angle = (Math.PI / 3) * i - Math.PI / 6;
+    const angle = (Math.PI / 3) * i;
     corners.push([
       center[0] + HEX_SIZE * Math.cos(angle),
       center[1] + HEX_SIZE * Math.sin(angle)
@@ -66,7 +68,7 @@ export function generateStandardCatanBoard(seed?: string | number): MapData {
 
   tilesData.forEach(tileData => {
     tileData.corners.forEach(corner => {
-      const key = `${corner[0].toFixed(1)},${corner[1].toFixed(1)}`;
+      const key = `${corner[0].toFixed(3)},${corner[1].toFixed(3)}`;
 
       if (!nodeMap.has(key)) {
         nodeMap.set(key, {
@@ -83,7 +85,7 @@ export function generateStandardCatanBoard(seed?: string | number): MapData {
   // Third pass: create tiles with node references
   const tiles: Tile[] = tilesData.map(tileData => {
     const nodeIds = tileData.corners.map(corner => {
-      const key = `${corner[0].toFixed(1)},${corner[1].toFixed(1)}`;
+      const key = `${corner[0].toFixed(3)},${corner[1].toFixed(3)}`;
       return nodeMap.get(key)!.id;
     });
 
