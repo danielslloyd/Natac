@@ -123,6 +123,7 @@
         let validTriangles = new Set(); // triangles that pass angle threshold
         let currentPointType = 'hex';
         let lastMapMode = null; // Track last map mode for redrawing
+        let lastGeneratedMapData = null; // Store last generated map data for validation
 
         // Validation error tracking
         let validationErrors = {
@@ -1928,9 +1929,6 @@
 
             return lastGeneratedMapData;
         }
-
-        // Store last generated map data for validation
-        let lastGeneratedMapData = null;
 
         // Modify generateMapData to store the result
         const originalGenerateMapData = window.generateMapData;
