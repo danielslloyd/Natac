@@ -1,7 +1,8 @@
 // Main map generation interface
 
 import type { MapData, MapGeneratorParams, GameOptions } from '../models/types.js';
-import { generateStandardCatanMap, generateExpandedHexMap } from './hexGenerator.js';
+import { generateStandardCatanBoard } from './standardBoard.js';
+import { generateExpandedHexMap } from './hexGenerator.js';
 import { generateDelaunayMap } from './delaunayGenerator.js';
 import { validateMapOrThrow } from './validator.js';
 
@@ -10,7 +11,7 @@ export function generateMap(options: GameOptions): MapData {
 
   switch (options.mapType) {
     case 'standard':
-      mapData = generateStandardCatanMap(options.seed);
+      mapData = generateStandardCatanBoard(options.seed);
       break;
 
     case 'expanded-hex':
@@ -55,5 +56,6 @@ export function generateMap(options: GameOptions): MapData {
 }
 
 export * from './validator.js';
+export * from './standardBoard.js';
 export * from './hexGenerator.js';
 export * from './delaunayGenerator.js';
