@@ -279,22 +279,12 @@
             return (tri.includes(a) && tri.includes(b));
         }
 
-        // Calculate triangle circumcenter (Voronoi vertex)
-        function getCircumcenter(p1, p2, p3) {
-            const [ax, ay] = p1;
-            const [bx, by] = p2;
-            const [cx, cy] = p3;
-
-            const d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
-            if (Math.abs(d) < 1e-10) {
-                // Degenerate triangle, return centroid
-                return [(ax + bx + cx) / 3, (ay + by + cy) / 3];
-            }
-
-            const ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / d;
-            const uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / d;
-
-            return [ux, uy];
+        // Calculate triangle centroid (node position)
+        function getCentroid(p1, p2, p3) {
+            return [
+                (p1[0] + p2[0] + p3[0]) / 3,
+                (p1[1] + p2[1] + p3[1]) / 3
+            ];
         }
 
         // Find neighboring triangles (share an edge) - for nodes
@@ -328,19 +318,19 @@
 
         // Build Voronoi diagram and tile structure
         function buildVoronoi(points, triangles) {
-            // Calculate circumcenters
+            // Calculate centroids (blue nodes)
             voronoiVertices = [];
             for (const tri of triangles) {
                 const p1 = points[tri[0]];
                 const p2 = points[tri[1]];
                 const p3 = points[tri[2]];
-                voronoiVertices.push(getCircumcenter(p1, p2, p3));
+                voronoiVertices.push(getCentroid(p1, p2, p3));
             }
 
             // Find triangle neighbors (share an edge)
             const triangleNeighbors = findNeighbors(triangles);
 
-            // Build Voronoi edges (green lines)
+            // Build Voronoi edges (green lines) - connect centroids of adjacent triangles
             voronoiEdges = [];
             for (let i = 0; i < triangles.length; i++) {
                 for (const j of triangleNeighbors[i]) {
@@ -367,30 +357,46 @@
 
                 tiles.push(trianglesWithPoint);
 
-                // Find neighbors: points connected by Delaunay edges
-                const neighbors = new Set();
+                // Find Delaunay neighbors: points connected by Delaunay edges (black lines)
+                const delaunayNeighbors = new Set();
                 for (const t of trianglesWithPoint) {
                     for (const v of triangles[t]) {
                         if (v !== i) {
-                            neighbors.add(v);
+                            delaunayNeighbors.add(v);
                         }
                     }
                 }
-                tileNeighbors.push(Array.from(neighbors));
 
-                // Check if tile is complete
-                // A complete tile has a Voronoi vertex for each neighbor
-                // This means all the triangles form a closed ring around the point
-                if (trianglesWithPoint.length === neighbors.size && trianglesWithPoint.length >= 3) {
+                // Find Voronoi neighbors: points that share a Voronoi edge (green line)
+                // These are neighbors where the connecting Delaunay edge crosses a Voronoi edge
+                const voronoiNeighbors = new Set();
+                for (const neighbor of delaunayNeighbors) {
+                    // Check if this neighbor shares a Voronoi edge
+                    // They share a Voronoi edge if there are two triangles that both contain i and neighbor
+                    let sharedTriangles = 0;
+                    for (const t of trianglesWithPoint) {
+                        if (triangles[t].includes(neighbor)) {
+                            sharedTriangles++;
+                        }
+                    }
+                    if (sharedTriangles >= 2) {
+                        voronoiNeighbors.add(neighbor);
+                    }
+                }
+
+                tileNeighbors.push(Array.from(voronoiNeighbors));
+
+                // Validate tile: all tiles are valid if they have at least 3 vertices
+                if (trianglesWithPoint.length >= 3) {
                     validTiles.add(i);
 
-                    // Check if it's an edge tile (has fewer than expected neighbors for the grid type)
-                    // For now, mark tiles with < 6 neighbors as edge tiles (hex grid assumption)
-                    if (neighbors.size < 6) {
+                    // Edge tile detection: if N Delaunay edges but fewer than N Voronoi neighbors
+                    const numDelaunayEdges = delaunayNeighbors.size;
+                    const numVoronoiNeighbors = voronoiNeighbors.size;
+
+                    if (numVoronoiNeighbors < numDelaunayEdges) {
                         edgeTiles.add(i);
                     }
-                } else {
-                    edgeTiles.add(i); // Incomplete tiles are edge tiles
                 }
             }
         }
