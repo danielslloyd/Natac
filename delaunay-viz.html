@@ -45,6 +45,7 @@
         <button onclick="generatePoints('hex')">Generate Hex Grid Points</button>
         <br><br>
         <label>Min Angle (deg): <input type="number" id="minAngle" value="20" min="0" max="60" style="width: 50px;"></label>
+        <label>Lloyd Relaxation: <input type="checkbox" id="lloydRelaxation" checked></label>
         <br><br>
         <button onclick="generateMap('hex-standard')">Hex Standard Map (1+6+12 tiles)</button>
         <button onclick="generateMap('hex-expanded')">Hex Expanded Map (N tiles)</button>
@@ -441,6 +442,21 @@
                     }
                 }
             }
+
+            // Expand ineligible tiles: any tile next to an ineligible tile is also ineligible
+            const initialIneligible = new Set(ineligibleTiles);
+            for (let i = 0; i < points.length; i++) {
+                if (!validTiles.has(i)) continue;
+                if (initialIneligible.has(i)) continue;
+
+                // Check if any neighbor is ineligible
+                for (const neighbor of tileNeighbors[i]) {
+                    if (initialIneligible.has(neighbor)) {
+                        ineligibleTiles.add(i);
+                        break;
+                    }
+                }
+            }
         }
 
         // Find center tile (closest to canvas center)
@@ -471,6 +487,87 @@
             return Math.sqrt(dx * dx + dy * dy);
         }
 
+        // Calculate centroid of a polygon (for Lloyd's algorithm)
+        function getPolygonCentroid(vertices) {
+            if (vertices.length < 3) return null;
+
+            let cx = 0, cy = 0;
+            let area = 0;
+
+            for (let i = 0; i < vertices.length; i++) {
+                const j = (i + 1) % vertices.length;
+                const cross = vertices[i][0] * vertices[j][1] - vertices[j][0] * vertices[i][1];
+                area += cross;
+                cx += (vertices[i][0] + vertices[j][0]) * cross;
+                cy += (vertices[i][1] + vertices[j][1]) * cross;
+            }
+
+            area *= 0.5;
+            if (Math.abs(area) < 1e-10) return null;
+
+            cx /= (6 * area);
+            cy /= (6 * area);
+
+            return [cx, cy];
+        }
+
+        // Check if there are any 4-sided tiles among eligible tiles
+        function hasFourSidedTiles() {
+            for (let i = 0; i < points.length; i++) {
+                if (!validTiles.has(i)) continue;
+                if (ineligibleTiles.has(i)) continue;
+
+                const numNeighbors = tileNeighbors[i].length;
+                if (numNeighbors === 4) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Apply Lloyd's relaxation: move each point to centroid of its Voronoi cell
+        function applyLloydsRelaxation() {
+            const newPoints = [];
+
+            for (let i = 0; i < points.length; i++) {
+                if (!validTiles.has(i) || tiles[i].length < 3) {
+                    // Keep invalid tiles in place
+                    newPoints.push([...points[i]]);
+                    continue;
+                }
+
+                // Get the tile's vertices (centroids of triangles containing this point)
+                const tileVertices = tiles[i].map(t => voronoiVertices[t]).filter(v => v !== null);
+
+                if (tileVertices.length < 3) {
+                    newPoints.push([...points[i]]);
+                    continue;
+                }
+
+                // Order vertices around the center point
+                const center = points[i];
+                tileVertices.sort((a, b) => {
+                    const angleA = Math.atan2(a[1] - center[1], a[0] - center[0]);
+                    const angleB = Math.atan2(b[1] - center[1], b[0] - center[0]);
+                    return angleA - angleB;
+                });
+
+                // Calculate polygon centroid
+                const centroid = getPolygonCentroid(tileVertices);
+
+                if (centroid) {
+                    // Keep point within bounds
+                    const x = Math.max(bounds.x, Math.min(bounds.x + bounds.width, centroid[0]));
+                    const y = Math.max(bounds.y, Math.min(bounds.y + bounds.height, centroid[1]));
+                    newPoints.push([x, y]);
+                } else {
+                    newPoints.push([...points[i]]);
+                }
+            }
+
+            return newPoints;
+        }
+
         // Main generation and drawing function
         function generatePoints(type) {
             currentPointType = type;
@@ -489,7 +586,7 @@
             }
 
             // Compute Delaunay triangulation
-            const result = delaunay(points);
+            let result = delaunay(points);
             triangles = result.triangles;
 
             if (triangles.length === 0) {
@@ -499,6 +596,31 @@
 
             // Build Voronoi diagram and tile structure
             buildVoronoi(points, triangles);
+
+            // Apply Lloyd's relaxation for Poisson mode if enabled
+            const useLloyd = document.getElementById('lloydRelaxation').checked;
+            if (type === 'poisson' && useLloyd) {
+                const maxIterations = 50;
+                let iteration = 0;
+
+                while (hasFourSidedTiles() && iteration < maxIterations) {
+                    // Apply relaxation
+                    points = applyLloydsRelaxation();
+
+                    // Recompute triangulation
+                    result = delaunay(points);
+                    triangles = result.triangles;
+
+                    if (triangles.length === 0) break;
+
+                    // Rebuild Voronoi
+                    buildVoronoi(points, triangles);
+
+                    iteration++;
+                }
+
+                console.log(`Lloyd's relaxation: ${iteration} iterations`);
+            }
 
             // Draw black lines (Delaunay edges) - only for valid triangles
             ctx.strokeStyle = 'black';
@@ -703,6 +825,62 @@
                     }
                 });
             });
+
+            // Post-processing: fix isolated tiles with non-adjacent water neighbors
+            const tilesToFix = [];
+            for (let i = 0; i < points.length; i++) {
+                if (!validTiles.has(i)) continue;
+                if (waterTiles.has(i)) continue; // Skip existing water tiles
+
+                const neighbors = tileNeighbors[i];
+                if (neighbors.length < 2) continue;
+
+                // Find water neighbors
+                const waterNeighborIndices = [];
+                for (let j = 0; j < neighbors.length; j++) {
+                    if (waterTiles.has(neighbors[j])) {
+                        waterNeighborIndices.push(j);
+                    }
+                }
+
+                if (waterNeighborIndices.length < 2) continue;
+
+                // Check if any two water neighbors are non-adjacent
+                let hasNonAdjacentWater = false;
+                for (let a = 0; a < waterNeighborIndices.length; a++) {
+                    for (let b = a + 1; b < waterNeighborIndices.length; b++) {
+                        const idxA = waterNeighborIndices[a];
+                        const idxB = waterNeighborIndices[b];
+                        const diff = Math.abs(idxA - idxB);
+
+                        // Non-adjacent if not consecutive in circular order
+                        if (diff !== 1 && diff !== neighbors.length - 1) {
+                            hasNonAdjacentWater = true;
+                            break;
+                        }
+                    }
+                    if (hasNonAdjacentWater) break;
+                }
+
+                if (hasNonAdjacentWater) {
+                    tilesToFix.push(i);
+                }
+            }
+
+            // Apply fixes
+            for (const tile of tilesToFix) {
+                const neighbors = tileNeighbors[tile];
+                const allWater = neighbors.every(n => waterTiles.has(n));
+                const hasLand = neighbors.some(n => landTiles.has(n));
+
+                if (allWater) {
+                    waterTiles.add(tile);
+                    landTiles.delete(tile);
+                } else if (hasLand) {
+                    landTiles.add(tile);
+                }
+                // Otherwise leave as null (no change)
+            }
 
             // Redraw everything with colors
             ctx.clearRect(0, 0, width, height);
