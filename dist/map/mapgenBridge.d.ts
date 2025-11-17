@@ -2,16 +2,14 @@ import type { MapData } from '../models/types.js';
 declare global {
     interface Window {
         generateMapData: (mapType: 'standard-catan' | 'expanded-hex' | 'delaunay-polygon', numTiles: number, erosionRounds: number) => {
-            redCircles: {
-                land: Array<{
-                    id: number;
-                    position: [number, number];
-                }>;
-                water: Array<{
-                    id: number;
-                    position: [number, number];
-                }>;
-            };
+            tiles: Array<{
+                id: number;
+                position: [number, number];
+                blueNodes: number[];
+                greenEdges: Array<[number, number]>;
+                isWater: boolean;
+                isLand: boolean;
+            }>;
             blueNodes: Array<{
                 id: number;
                 position: [number, number];
