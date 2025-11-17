@@ -44,12 +44,6 @@
         <button onclick="generatePoints('poisson')">Generate Poisson-Disc Points</button>
         <button onclick="generatePoints('hex')">Generate Hex Grid Points</button>
         <br><br>
-        <label>Min Angle (deg): <input type="number" id="minAngle" value="20" min="0" max="60" style="width: 50px;"></label>
-        <label>Lloyd Relaxation: <input type="checkbox" id="lloydRelaxation" checked></label>
-        <br>
-        <label>Max Area %: <input type="number" id="maxAreaPercent" value="150" min="100" max="300" style="width: 50px;"></label>
-        <label>Min Area %: <input type="number" id="minAreaPercent" value="50" min="10" max="100" style="width: 50px;"></label>
-        <br><br>
         <button onclick="generateMap('hex-standard')">Hex Standard Map (1+6+12 tiles)</button>
         <button onclick="generateMap('hex-expanded')">Hex Expanded Map (N tiles)</button>
         <button onclick="generateMap('delaunay-expanded')">Delaunay Expanded Map (N tiles)</button>
@@ -65,6 +59,12 @@
         const width = canvas.width;
         const height = canvas.height;
         const margin = 20;
+
+        // Hardcoded parameters
+        const MIN_ANGLE_DEG = 20;
+        const LLOYD_RELAXATION = true;
+        const MAX_AREA_PERCENT = 125;
+        const MIN_AREA_PERCENT = 75;
 
         // Bounding box
         const bounds = {
@@ -83,6 +83,7 @@
         let validTiles = new Set(); // tiles with complete Voronoi cells
         let edgeTiles = new Set(); // tiles on boundary
         let ineligibleTiles = new Set(); // tiles ineligible for land propagation
+        let waterOnlyTiles = new Set(); // tiles that can only be water (2-ring buffer around ineligible)
         let validTriangles = new Set(); // triangles that pass angle threshold
         let currentPointType = 'hex';
 
@@ -347,8 +348,6 @@
 
         // Build Voronoi diagram and tile structure
         function buildVoronoi(points, triangles) {
-            const minAngleDeg = parseFloat(document.getElementById('minAngle').value);
-
             // Check triangle validity and calculate centroids (blue nodes)
             validTriangles = new Set();
             voronoiVertices = [];
@@ -358,7 +357,7 @@
                 const p2 = points[tri[1]];
                 const p3 = points[tri[2]];
 
-                if (isTriangleValid(p1, p2, p3, minAngleDeg)) {
+                if (isTriangleValid(p1, p2, p3, MIN_ANGLE_DEG)) {
                     validTriangles.add(i);
                     voronoiVertices.push(getCentroid(p1, p2, p3));
                 } else {
@@ -460,6 +459,34 @@
                     }
                 }
             }
+
+            // Create water-only tiles: 2-ring buffer around ineligible tiles
+            // Tiles that border ineligible tiles OR neighbors of ineligible tiles are water-only
+            waterOnlyTiles = new Set(ineligibleTiles);
+
+            // Add first ring: neighbors of ineligible tiles
+            const firstRing = new Set();
+            for (const ineligible of ineligibleTiles) {
+                if (tileNeighbors[ineligible]) {
+                    for (const neighbor of tileNeighbors[ineligible]) {
+                        if (validTiles.has(neighbor)) {
+                            firstRing.add(neighbor);
+                            waterOnlyTiles.add(neighbor);
+                        }
+                    }
+                }
+            }
+
+            // Add second ring: neighbors of first ring
+            for (const tile of firstRing) {
+                if (tileNeighbors[tile]) {
+                    for (const neighbor of tileNeighbors[tile]) {
+                        if (validTiles.has(neighbor)) {
+                            waterOnlyTiles.add(neighbor);
+                        }
+                    }
+                }
+            }
         }
 
         // Find center tile (closest to canvas center)
@@ -470,7 +497,7 @@
             let centerIdx = 0;
 
             for (let i = 0; i < points.length; i++) {
-                if (!validTiles.has(i) || ineligibleTiles.has(i)) continue;
+                if (!validTiles.has(i) || waterOnlyTiles.has(i)) continue;
                 const dx = points[i][0] - cx;
                 const dy = points[i][1] - cy;
                 const dist = Math.sqrt(dx * dx + dy * dy);
@@ -577,13 +604,10 @@
             areas.sort((a, b) => a - b);
             const medianArea = areas[Math.floor(areas.length / 2)];
 
-            // Find outliers
-            const maxAreaPercent = parseFloat(document.getElementById('maxAreaPercent').value) / 100;
-            const minAreaPercent = parseFloat(document.getElementById('minAreaPercent').value) / 100;
-
+            // Find outliers using hardcoded percentages
             const outliers = [];
             for (const [tileIdx, area] of tileAreas) {
-                if (area > medianArea * maxAreaPercent || area < medianArea * minAreaPercent) {
+                if (area > medianArea * (MAX_AREA_PERCENT / 100) || area < medianArea * (MIN_AREA_PERCENT / 100)) {
                     outliers.push(tileIdx);
                 }
             }
@@ -787,8 +811,7 @@
             buildVoronoi(points, triangles);
 
             // Apply Lloyd's relaxation for Poisson mode if enabled
-            const useLloyd = document.getElementById('lloydRelaxation').checked;
-            if (type === 'poisson' && useLloyd) {
+            if (type === 'poisson' && LLOYD_RELAXATION) {
                 const maxIterations = 20;
                 let iteration = 0;
                 let fourSided = getFourSidedTiles();
@@ -951,14 +974,14 @@
                 landTiles.add(centerTile);
 
                 // Add first ring (6 neighbors)
-                const ring1 = tileNeighbors[centerTile].filter(t => validTiles.has(t) && !ineligibleTiles.has(t));
+                const ring1 = tileNeighbors[centerTile].filter(t => validTiles.has(t) && !waterOnlyTiles.has(t));
                 ring1.forEach(t => landTiles.add(t));
 
                 // Add second ring (12 neighbors)
                 const ring2 = new Set();
                 ring1.forEach(t => {
                     tileNeighbors[t].forEach(n => {
-                        if (!landTiles.has(n) && validTiles.has(n) && !ineligibleTiles.has(n)) {
+                        if (!landTiles.has(n) && validTiles.has(n) && !waterOnlyTiles.has(n)) {
                             ring2.add(n);
                         }
                     });
@@ -966,7 +989,7 @@
                 ring2.forEach(t => landTiles.add(t));
 
             } else if (mode === 'hex-expanded' || mode === 'delaunay-expanded') {
-                // Random propagation from center (excluding ineligible tiles)
+                // Random propagation from center (excluding water-only tiles)
                 landTiles.add(centerTile);
                 const frontier = [centerTile];
 
@@ -975,9 +998,9 @@
                     const current = frontier[randomIdx];
                     frontier.splice(randomIdx, 1);
 
-                    // Get valid neighbors (non-ineligible tiles only)
+                    // Get valid neighbors (non-water-only tiles only)
                     let neighbors = tileNeighbors[current].filter(n =>
-                        validTiles.has(n) && !ineligibleTiles.has(n)
+                        validTiles.has(n) && !waterOnlyTiles.has(n)
                     );
 
                     // Shuffle and add neighbors
@@ -1048,7 +1071,7 @@
 
                 // Find non-land neighbors of furthest shore
                 const nonLandNeighbors = tileNeighbors[furthestShore].filter(n =>
-                    !landTiles.has(n) && validTiles.has(n) && !ineligibleTiles.has(n)
+                    !landTiles.has(n) && validTiles.has(n) && !waterOnlyTiles.has(n)
                 );
 
                 // Add one non-land neighbor as land (pick randomly if multiple)
