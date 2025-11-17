@@ -37,6 +37,56 @@
             display: block;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
+        #canvas {
+            width: 600px;
+            height: 400px;
+        }
+        #validationCanvas {
+            background: white;
+            border: 2px solid #2196F3;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            cursor: crosshair;
+        }
+        .canvas-section {
+            margin-bottom: 20px;
+        }
+        .canvas-label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #333;
+        }
+        #elementInfo {
+            margin-top: 10px;
+            padding: 15px;
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            border-radius: 4px;
+            display: none;
+        }
+        #elementInfo h3 {
+            margin: 0 0 10px 0;
+            color: #1976d2;
+        }
+        #elementInfo .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-top: 10px;
+        }
+        #elementInfo .info-item {
+            padding: 8px;
+            background: white;
+            border-radius: 4px;
+        }
+        #elementInfo .info-label {
+            font-size: 0.85rem;
+            color: #666;
+        }
+        #elementInfo .info-value {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #1976d2;
+        }
         #validationResults {
             margin-top: 20px;
             padding: 15px;
@@ -85,8 +135,20 @@
         <label>Y (erosion rounds) = <input type="number" id="erosionRounds" value="5" min="0" max="50" style="width: 50px;"></label>
         <br><br>
         <button class="validate-btn" onclick="validateCurrentMap()">🔍 Validate Map</button>
+        <button class="validate-btn" onclick="toggleValidationCanvas()">🔬 Interactive Debug Canvas</button>
     </div>
-    <canvas id="canvas" width="1200" height="800"></canvas>
+
+    <div class="canvas-section">
+        <div class="canvas-label">Generation Canvas</div>
+        <canvas id="canvas" width="1200" height="800"></canvas>
+    </div>
+
+    <div id="validationCanvasSection" style="display: none;">
+        <div class="canvas-label">Interactive Validation Canvas - Click on tiles (red), edges (green), or nodes (blue)</div>
+        <canvas id="validationCanvas" width="1200" height="800"></canvas>
+        <div id="elementInfo"></div>
+    </div>
+
     <div id="validationResults"></div>
 
     <script>
@@ -2051,6 +2113,379 @@
 
             return { tiles, nodes, edges };
         }
+
+        // ============================================================================
+        // Interactive Validation Canvas
+        // ============================================================================
+
+        const validationCanvas = document.getElementById('validationCanvas');
+        const vCtx = validationCanvas.getContext('2d');
+        let debugLandTiles = new Set();
+        let debugWaterTiles = new Set();
+        let selectedElement = null;
+
+        function toggleValidationCanvas() {
+            const section = document.getElementById('validationCanvasSection');
+            if (section.style.display === 'none') {
+                if (!lastGeneratedMapData) {
+                    alert('Please generate a map first!');
+                    return;
+                }
+                section.style.display = 'block';
+                drawValidationCanvas();
+            } else {
+                section.style.display = 'none';
+                document.getElementById('elementInfo').style.display = 'none';
+            }
+        }
+
+        function drawValidationCanvas(highlightInfo = null) {
+            vCtx.clearRect(0, 0, validationCanvas.width, validationCanvas.height);
+
+            if (!lastGeneratedMapData) return;
+
+            const mapData = lastGeneratedMapData;
+            const { tiles: mapTiles, nodes: mapNodes, edges: mapEdges } = mapData;
+
+            // Build lookup maps
+            const tileMap = new Map(mapTiles.map(t => [t.id, t]));
+            const nodeMap = new Map(mapNodes.map(n => [n.id, n]));
+            const edgeMap = new Map(mapEdges.map(e => [e.id, e]));
+
+            // Determine which elements to highlight
+            const highlightTiles = new Set();
+            const highlightNodes = new Set();
+            const highlightEdges = new Set();
+
+            if (highlightInfo) {
+                if (highlightInfo.tiles) highlightInfo.tiles.forEach(id => highlightTiles.add(id));
+                if (highlightInfo.nodes) highlightInfo.nodes.forEach(id => highlightNodes.add(id));
+                if (highlightInfo.edges) highlightInfo.edges.forEach(id => highlightEdges.add(id));
+            }
+
+            // Draw tiles (fill polygons based on land/water)
+            mapTiles.forEach(tile => {
+                if (!tile.position) return;
+
+                // Get surrounding node positions to draw polygon
+                const nodePositions = tile.nodes
+                    .map(nodeId => nodeMap.get(nodeId)?.position)
+                    .filter(Boolean);
+
+                if (nodePositions.length >= 3) {
+                    vCtx.beginPath();
+                    vCtx.moveTo(nodePositions[0][0], nodePositions[0][1]);
+                    for (let i = 1; i < nodePositions.length; i++) {
+                        vCtx.lineTo(nodePositions[i][0], nodePositions[i][1]);
+                    }
+                    vCtx.closePath();
+
+                    // Fill based on land/water status
+                    const tileIdNum = parseInt(tile.id.split('-')[1]);
+                    if (debugLandTiles.has(tileIdNum)) {
+                        vCtx.fillStyle = highlightTiles.has(tile.id) ? 'rgba(34, 139, 34, 0.8)' : 'rgba(34, 139, 34, 0.3)';
+                    } else if (debugWaterTiles.has(tileIdNum)) {
+                        vCtx.fillStyle = highlightTiles.has(tile.id) ? 'rgba(30, 144, 255, 0.8)' : 'rgba(30, 144, 255, 0.3)';
+                    } else {
+                        vCtx.fillStyle = highlightTiles.has(tile.id) ? 'rgba(200, 200, 200, 0.6)' : 'rgba(200, 200, 200, 0.2)';
+                    }
+                    vCtx.fill();
+                }
+            });
+
+            // Draw edges (green lines)
+            mapEdges.forEach(edge => {
+                const nodeA = nodeMap.get(edge.nodeA);
+                const nodeB = nodeMap.get(edge.nodeB);
+
+                if (nodeA?.position && nodeB?.position) {
+                    vCtx.beginPath();
+                    vCtx.moveTo(nodeA.position[0], nodeA.position[1]);
+                    vCtx.lineTo(nodeB.position[0], nodeB.position[1]);
+
+                    if (highlightEdges.has(edge.id)) {
+                        vCtx.strokeStyle = '#00ff00';
+                        vCtx.lineWidth = 4;
+                    } else {
+                        vCtx.strokeStyle = 'rgba(0, 200, 0, 0.4)';
+                        vCtx.lineWidth = 1.5;
+                    }
+                    vCtx.stroke();
+                }
+            });
+
+            // Draw nodes (blue circles)
+            mapNodes.forEach(node => {
+                if (!node.position) return;
+
+                vCtx.beginPath();
+                vCtx.arc(node.position[0], node.position[1], highlightNodes.has(node.id) ? 6 : 3, 0, 2 * Math.PI);
+                vCtx.fillStyle = highlightNodes.has(node.id) ? '#0000ff' : 'rgba(0, 0, 255, 0.5)';
+                vCtx.fill();
+            });
+
+            // Draw tile centers (red circles)
+            mapTiles.forEach(tile => {
+                if (!tile.position) return;
+
+                vCtx.beginPath();
+                vCtx.arc(tile.position[0], tile.position[1], highlightTiles.has(tile.id) ? 5 : 3, 0, 2 * Math.PI);
+                vCtx.fillStyle = highlightTiles.has(tile.id) ? '#ff0000' : 'rgba(255, 0, 0, 0.6)';
+                vCtx.fill();
+            });
+
+            // Draw black edges (Delaunay edges / tile connectivity)
+            mapTiles.forEach(tile => {
+                const tileIdNum = parseInt(tile.id.split('-')[1]);
+                if (!tileNeighbors[tileIdNum]) return;
+
+                tileNeighbors[tileIdNum].forEach(neighborIdx => {
+                    const neighborId = `tile-${neighborIdx}`;
+                    const neighbor = tileMap.get(neighborId);
+                    if (neighbor && tile.position && neighbor.position) {
+                        // Only draw each edge once
+                        if (tileIdNum < neighborIdx) {
+                            vCtx.beginPath();
+                            vCtx.moveTo(tile.position[0], tile.position[1]);
+                            vCtx.lineTo(neighbor.position[0], neighbor.position[1]);
+
+                            const isHighlighted = highlightTiles.has(tile.id) && highlightTiles.has(neighborId);
+                            vCtx.strokeStyle = isHighlighted ? '#000000' : 'rgba(0, 0, 0, 0.2)';
+                            vCtx.lineWidth = isHighlighted ? 2 : 0.5;
+                            vCtx.stroke();
+                        }
+                    }
+                });
+            });
+        }
+
+        // Click detection on validation canvas
+        validationCanvas.addEventListener('click', (event) => {
+            if (!lastGeneratedMapData) return;
+
+            const rect = validationCanvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+
+            const mapData = lastGeneratedMapData;
+            const { tiles: mapTiles, nodes: mapNodes, edges: mapEdges } = mapData;
+
+            const tileMap = new Map(mapTiles.map(t => [t.id, t]));
+            const nodeMap = new Map(mapNodes.map(n => [n.id, n]));
+
+            // Check for tile click (red dots)
+            let clickedTile = null;
+            for (const tile of mapTiles) {
+                if (!tile.position) continue;
+                const dist = Math.sqrt(
+                    Math.pow(x - tile.position[0], 2) +
+                    Math.pow(y - tile.position[1], 2)
+                );
+                if (dist < 8) {
+                    clickedTile = tile;
+                    break;
+                }
+            }
+
+            if (clickedTile) {
+                handleTileClick(clickedTile, mapData);
+                return;
+            }
+
+            // Check for node click (blue dots)
+            let clickedNode = null;
+            for (const node of mapNodes) {
+                if (!node.position) continue;
+                const dist = Math.sqrt(
+                    Math.pow(x - node.position[0], 2) +
+                    Math.pow(y - node.position[1], 2)
+                );
+                if (dist < 8) {
+                    clickedNode = node;
+                    break;
+                }
+            }
+
+            if (clickedNode) {
+                handleNodeClick(clickedNode, mapData);
+                return;
+            }
+
+            // Check for edge click (green lines)
+            let clickedEdge = null;
+            for (const edge of mapEdges) {
+                const nodeA = nodeMap.get(edge.nodeA);
+                const nodeB = nodeMap.get(edge.nodeB);
+
+                if (!nodeA?.position || !nodeB?.position) continue;
+
+                const dist = pointToLineDistance(
+                    [x, y],
+                    nodeA.position,
+                    nodeB.position
+                );
+
+                if (dist < 8) {
+                    clickedEdge = edge;
+                    break;
+                }
+            }
+
+            if (clickedEdge) {
+                handleEdgeClick(clickedEdge, mapData);
+                return;
+            }
+
+            // No element clicked - clear selection
+            document.getElementById('elementInfo').style.display = 'none';
+            drawValidationCanvas();
+        });
+
+        function handleTileClick(tile, mapData) {
+            const { tiles: mapTiles, nodes: mapNodes, edges: mapEdges } = mapData;
+            const tileMap = new Map(mapTiles.map(t => [t.id, t]));
+            const nodeMap = new Map(mapNodes.map(n => [n.id, n]));
+
+            // Get tile's boundary nodes
+            const boundaryNodes = tile.nodes;
+
+            // Get tile's boundary edges
+            const boundaryEdges = tile.edges;
+
+            // Get neighbor tiles
+            const tileIdNum = parseInt(tile.id.split('-')[1]);
+            const neighborTiles = (tileNeighbors[tileIdNum] || []).map(idx => `tile-${idx}`);
+
+            // Highlight
+            drawValidationCanvas({
+                tiles: [tile.id, ...neighborTiles],
+                nodes: boundaryNodes,
+                edges: boundaryEdges
+            });
+
+            // Show info
+            showElementInfo({
+                type: 'Tile',
+                id: tile.id,
+                counts: {
+                    'Boundary Nodes': boundaryNodes.length,
+                    'Boundary Edges': boundaryEdges.length,
+                    'Neighbor Tiles': neighborTiles.length,
+                    'Expected Neighbors': boundaryNodes.length
+                }
+            });
+        }
+
+        function handleNodeClick(node, mapData) {
+            const { tiles: mapTiles, nodes: mapNodes, edges: mapEdges } = mapData;
+
+            // Get node's tiles
+            const nodeTiles = node.tiles;
+
+            // Get node's edges (edges that have this node as endpoint)
+            const nodeEdges = mapEdges
+                .filter(e => e.nodeA === node.id || e.nodeB === node.id)
+                .map(e => e.id);
+
+            // Highlight
+            drawValidationCanvas({
+                tiles: nodeTiles,
+                nodes: [node.id],
+                edges: nodeEdges
+            });
+
+            // Show info
+            showElementInfo({
+                type: 'Node',
+                id: node.id,
+                counts: {
+                    'Adjacent Tiles': nodeTiles.length,
+                    'Expected Tiles': '3',
+                    'Connected Edges': nodeEdges.length,
+                    'Valid': nodeTiles.length === 3 ? 'Yes ✓' : 'No ✗'
+                }
+            });
+        }
+
+        function handleEdgeClick(edge, mapData) {
+            const { tiles: mapTiles, nodes: mapNodes, edges: mapEdges } = mapData;
+            const nodeMap = new Map(mapNodes.map(n => [n.id, n]));
+
+            // Get edge's two nodes
+            const edgeNodes = [edge.nodeA, edge.nodeB];
+
+            // Get edge's two tiles
+            const edgeTiles = [edge.tileLeft, edge.tileRight].filter(Boolean);
+
+            // Highlight
+            drawValidationCanvas({
+                tiles: edgeTiles,
+                nodes: edgeNodes,
+                edges: [edge.id]
+            });
+
+            // Show info
+            showElementInfo({
+                type: 'Edge',
+                id: edge.id,
+                counts: {
+                    'Endpoint Nodes': edgeNodes.length,
+                    'Expected Nodes': '2',
+                    'Adjacent Tiles': edgeTiles.length,
+                    'Valid': edgeNodes.length === 2 ? 'Yes ✓' : 'No ✗'
+                }
+            });
+        }
+
+        function showElementInfo(info) {
+            const infoDiv = document.getElementById('elementInfo');
+            infoDiv.style.display = 'block';
+
+            let html = `<h3>${info.type}: ${info.id}</h3>`;
+            html += '<div class="info-grid">';
+
+            for (const [label, value] of Object.entries(info.counts)) {
+                html += `
+                    <div class="info-item">
+                        <div class="info-label">${label}</div>
+                        <div class="info-value">${value}</div>
+                    </div>
+                `;
+            }
+
+            html += '</div>';
+            infoDiv.innerHTML = html;
+        }
+
+        function pointToLineDistance(point, lineStart, lineEnd) {
+            const [px, py] = point;
+            const [x1, y1] = lineStart;
+            const [x2, y2] = lineEnd;
+
+            const dx = x2 - x1;
+            const dy = y2 - y1;
+            const lengthSquared = dx * dx + dy * dy;
+
+            if (lengthSquared === 0) {
+                return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2);
+            }
+
+            let t = ((px - x1) * dx + (py - y1) * dy) / lengthSquared;
+            t = Math.max(0, Math.min(1, t));
+
+            const nearestX = x1 + t * dx;
+            const nearestY = y1 + t * dy;
+
+            return Math.sqrt((px - nearestX) ** 2 + (py - nearestY) ** 2);
+        }
+
+        // Update buildValidationDataFromCurrentState to also store land/water info
+        const originalBuildValidation = buildValidationDataFromCurrentState;
+        buildValidationDataFromCurrentState = function(landTiles, waterTiles) {
+            debugLandTiles = new Set(landTiles);
+            debugWaterTiles = new Set(waterTiles);
+            originalBuildValidation(landTiles, waterTiles);
+        };
 
         // Initialize with hex grid
         generatePoints('hex');
