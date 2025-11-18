@@ -144,15 +144,23 @@ function convertVizDataToMapData(
     });
   });
 
-  // Filter nodes to only those with exactly 3 tiles (valid Catan nodes)
-  const validNodes = nodes.filter(node => node.tiles.length === 3);
+  // Filter nodes to only valid Catan nodes:
+  // - Interior nodes: 3 tiles (standard vertex)
+  // - Boundary nodes: 1-2 tiles (edge of map)
+  const validNodes = nodes.filter(node =>
+    node.tiles.length >= 1 && node.tiles.length <= 3
+  );
   const validNodeIds = new Set(validNodes.map(n => n.id));
+
+  // Mark boundary nodes (those with < 3 tiles)
+  validNodes.forEach(node => {
+    node.isBoundary = node.tiles.length < 3;
+  });
 
   // Update tiles to only reference valid nodes
   tiles.forEach(tile => {
     tile.nodes = tile.nodes.filter(nodeId => validNodeIds.has(nodeId));
-    // Update shape to match actual number of valid nodes
-    tile.shape = tile.nodes.length as TileShape;
+    // Don't update shape yet - we'll set it based on boundary status after edges
   });
 
   // Create edges from green edges (Voronoi edges = tile boundaries)
@@ -182,13 +190,17 @@ function convertVizDataToMapData(
       tile.nodes.includes(nodeAId) && tile.nodes.includes(nodeBId)
     );
 
+    const tileLeft = commonTiles[0]?.id || null;
+    const tileRight = commonTiles[1]?.id || null;
+
     edges.push({
       id: edgeId,
       nodeA: nodeAId,
       nodeB: nodeBId,
-      tileLeft: commonTiles[0]?.id || null,
-      tileRight: commonTiles[1]?.id || null,
-      roadOwner: null
+      tileLeft,
+      tileRight,
+      roadOwner: null,
+      isBoundary: !tileLeft || !tileRight // Boundary if missing a tile on either side
     });
   });
 
@@ -213,6 +225,27 @@ function convertVizDataToMapData(
     }
 
     tile.edges = tileEdges;
+
+    // Mark as boundary tile if it has any boundary edges or boundary nodes
+    const hasBoundaryEdge = tileEdges.some(edgeId => {
+      const edge = edges.find(e => e.id === edgeId);
+      return edge?.isBoundary;
+    });
+    const hasBoundaryNode = tile.nodes.some(nodeId => {
+      const node = validNodes.find(n => n.id === nodeId);
+      return node?.isBoundary;
+    });
+    tile.isBoundary = hasBoundaryEdge || hasBoundaryNode;
+
+    // Update shape based on boundary status
+    if (tile.isBoundary) {
+      // For boundary tiles, keep the original shape (target shape)
+      // but allow actual nodes/edges to be fewer
+      // Shape represents the "ideal" shape, actual count can be less
+    } else {
+      // For interior tiles, shape must match node count
+      tile.shape = tile.nodes.length as TileShape;
+    }
   });
 
   // Assign resources and dice numbers

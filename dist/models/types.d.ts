@@ -21,6 +21,7 @@ export interface Tile {
     edges: ID[];
     nodes: ID[];
     robberPresent?: boolean;
+    isBoundary?: boolean;
 }
 export interface Node {
     id: ID;
@@ -30,6 +31,7 @@ export interface Node {
         playerId: ID;
         type: 'settlement' | 'city';
     } | null;
+    isBoundary?: boolean;
 }
 export interface Edge {
     id: ID;
@@ -38,6 +40,7 @@ export interface Edge {
     tileLeft?: ID | null;
     tileRight?: ID | null;
     roadOwner?: ID | null;
+    isBoundary?: boolean;
 }
 export interface Knight {
     id: ID;

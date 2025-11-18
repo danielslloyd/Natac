@@ -48,11 +48,23 @@ export function validateMap(mapData) {
             }
         });
         // Verify tile shape matches number of nodes/edges
-        if (tile.nodes.length !== tile.shape) {
-            errors.push(`Tile ${tile.id} has shape ${tile.shape} but ${tile.nodes.length} nodes`);
+        // Boundary tiles can have fewer edges/nodes than their shape suggests
+        if (!tile.isBoundary) {
+            if (tile.nodes.length !== tile.shape) {
+                errors.push(`Tile ${tile.id} has shape ${tile.shape} but ${tile.nodes.length} nodes`);
+            }
+            if (tile.edges.length !== tile.shape) {
+                errors.push(`Tile ${tile.id} has shape ${tile.shape} but ${tile.edges.length} edges`);
+            }
         }
-        if (tile.edges.length !== tile.shape) {
-            errors.push(`Tile ${tile.id} has shape ${tile.shape} but ${tile.edges.length} edges`);
+        else {
+            // Boundary tiles should have at least 3 nodes/edges
+            if (tile.nodes.length < 3) {
+                errors.push(`Boundary tile ${tile.id} has ${tile.nodes.length} nodes (must be >= 3)`);
+            }
+            if (tile.edges.length < 3) {
+                errors.push(`Boundary tile ${tile.id} has ${tile.edges.length} edges (must be >= 3)`);
+            }
         }
         // Verify polygon has at least 3 sides
         if (tile.shape < 3) {
