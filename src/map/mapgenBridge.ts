@@ -204,11 +204,47 @@ function convertVizDataToMapData(
     });
   });
 
-  // Update tiles with their edge IDs
+  // Update tiles with their edge IDs and fix node winding order
   tiles.forEach(tile => {
-    const tileEdges: string[] = [];
+    if (tile.nodes.length === 0) return;
 
-    // For each pair of consecutive nodes in the tile, find the edge
+    // Reorder nodes to form a proper cycle by walking edges
+    const orderedNodes: string[] = [];
+    const remainingNodes = new Set(tile.nodes);
+
+    // Start with first node
+    let currentNode = tile.nodes[0];
+    orderedNodes.push(currentNode);
+    remainingNodes.delete(currentNode);
+
+    // Walk the perimeter by finding edges
+    while (remainingNodes.size > 0) {
+      // Find an edge that connects currentNode to another node in remainingNodes
+      const nextEdge = edges.find(e => {
+        if (e.nodeA === currentNode && remainingNodes.has(e.nodeB)) return true;
+        if (e.nodeB === currentNode && remainingNodes.has(e.nodeA)) return true;
+        return false;
+      });
+
+      if (!nextEdge) {
+        // Can't find next edge - might be a boundary tile with missing edges
+        // Just add remaining nodes in original order
+        remainingNodes.forEach(nodeId => orderedNodes.push(nodeId));
+        break;
+      }
+
+      // Move to next node
+      const nextNode = nextEdge.nodeA === currentNode ? nextEdge.nodeB : nextEdge.nodeA;
+      orderedNodes.push(nextNode);
+      remainingNodes.delete(nextNode);
+      currentNode = nextNode;
+    }
+
+    // Update tile nodes with proper winding order
+    tile.nodes = orderedNodes;
+
+    // Now build edges list using the ordered nodes
+    const tileEdges: string[] = [];
     for (let i = 0; i < tile.nodes.length; i++) {
       const nodeA = tile.nodes[i];
       const nodeB = tile.nodes[(i + 1) % tile.nodes.length];
@@ -255,37 +291,54 @@ function convertVizDataToMapData(
 }
 
 function assignResourcesAndDice(tiles: Tile[], rng: SeededRandom): void {
-  const resources: Resource[] = [
-    Resource.WOOD,
-    Resource.BRICK,
-    Resource.SHEEP,
-    Resource.WHEAT,
-    Resource.ORE
+  // Standard Catan deck composition
+  const resourceDeck = [
+    Resource.ORE, Resource.ORE, Resource.ORE,
+    Resource.BRICK, Resource.BRICK, Resource.BRICK,
+    Resource.WOOD, Resource.WOOD, Resource.WOOD, Resource.WOOD,
+    Resource.SHEEP, Resource.SHEEP, Resource.SHEEP, Resource.SHEEP,
+    Resource.WHEAT, Resource.WHEAT, Resource.WHEAT, Resource.WHEAT,
+    Resource.DESERT
   ];
 
-  const diceNumbers = [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12];
+  const diceDeck = [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12];
 
-  // Assign one desert
-  const desertIdx = rng.nextInt(0, tiles.length - 1);
+  // Shuffle and deal from decks, creating new decks as needed
+  const shuffledResources: Resource[] = [];
+  const shuffledDice: number[] = [];
 
+  // Create enough shuffled decks to cover all tiles
+  while (shuffledResources.length < tiles.length) {
+    const deckCopy = [...resourceDeck];
+    // Fisher-Yates shuffle
+    for (let i = deckCopy.length - 1; i > 0; i--) {
+      const j = rng.nextInt(0, i);
+      [deckCopy[i], deckCopy[j]] = [deckCopy[j], deckCopy[i]];
+    }
+    shuffledResources.push(...deckCopy);
+  }
+
+  while (shuffledDice.length < tiles.length) {
+    const deckCopy = [...diceDeck];
+    // Fisher-Yates shuffle
+    for (let i = deckCopy.length - 1; i > 0; i--) {
+      const j = rng.nextInt(0, i);
+      [deckCopy[i], deckCopy[j]] = [deckCopy[j], deckCopy[i]];
+    }
+    shuffledDice.push(...deckCopy);
+  }
+
+  // Deal to tiles
+  let diceIdx = 0;
   tiles.forEach((tile, idx) => {
-    if (idx === desertIdx) {
-      tile.resource = Resource.DESERT;
+    tile.resource = shuffledResources[idx];
+
+    if (tile.resource === Resource.DESERT) {
       tile.diceNumber = null;
       tile.robberPresent = true;
     } else {
-      tile.resource = resources[rng.nextInt(0, resources.length - 1)];
-
-      // Assign dice number if we have any left
-      if (diceNumbers.length > 0) {
-        const diceIdx = rng.nextInt(0, diceNumbers.length - 1);
-        tile.diceNumber = diceNumbers[diceIdx];
-        // Don't remove from array - we can reuse dice numbers if needed
-      } else {
-        // Fallback if we run out
-        tile.diceNumber = rng.nextInt(2, 12);
-        if (tile.diceNumber === 7) tile.diceNumber = 8;
-      }
+      tile.diceNumber = shuffledDice[diceIdx++];
+      tile.robberPresent = false;
     }
   });
 }
