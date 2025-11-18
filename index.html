@@ -354,6 +354,16 @@
     let selectedMapType = 'standard';
     let canvas, ctx;
 
+    // View state for zoom and pan
+    let viewState = {
+      zoom: 1.0,
+      minZoom: 1.0,
+      maxZoom: 3.0,
+      panX: 0,
+      panY: 0,
+      mapBounds: { minX: 0, minY: 0, maxX: 0, maxY: 0, width: 0, height: 0 }
+    };
+
     // Setup screen event listeners
     document.querySelectorAll('.map-option').forEach(option => {
       option.addEventListener('click', () => {
@@ -406,13 +416,136 @@
       canvas = document.getElementById('gameCanvas');
       ctx = canvas.getContext('2d');
 
+      // Calculate map bounds
+      calculateMapBounds();
+
+      // Add event listeners
       canvas.addEventListener('click', handleCanvasClick);
+      canvas.addEventListener('wheel', handleZoom, { passive: false });
+      canvas.addEventListener('mousedown', handlePanStart);
+      canvas.addEventListener('mousemove', handlePanMove);
+      canvas.addEventListener('mouseup', handlePanEnd);
 
       // Update map info
       document.getElementById('mapTypeDisplay').textContent = selectedMapType;
       document.getElementById('tileCount').textContent = gameState.tiles.length;
       document.getElementById('nodeCount').textContent = gameState.nodes.length;
       document.getElementById('edgeCount').textContent = gameState.edges.length;
+    }
+
+    function calculateMapBounds() {
+      let minX = Infinity, minY = Infinity;
+      let maxX = -Infinity, maxY = -Infinity;
+
+      // Check all tile polygon points
+      gameState.tiles.forEach(tile => {
+        if (tile.polygonPoints) {
+          tile.polygonPoints.forEach(([x, y]) => {
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+          });
+        }
+      });
+
+      // Check all node locations
+      gameState.nodes.forEach(node => {
+        if (node.location) {
+          minX = Math.min(minX, node.location[0]);
+          minY = Math.min(minY, node.location[1]);
+          maxX = Math.max(maxX, node.location[0]);
+          maxY = Math.max(maxY, node.location[1]);
+        }
+      });
+
+      viewState.mapBounds = {
+        minX, minY, maxX, maxY,
+        width: maxX - minX,
+        height: maxY - minY
+      };
+
+      // Calculate initial zoom to fit map in canvas with padding
+      const padding = 40;
+      const scaleX = (canvas.width - padding * 2) / viewState.mapBounds.width;
+      const scaleY = (canvas.height - padding * 2) / viewState.mapBounds.height;
+      viewState.minZoom = Math.min(scaleX, scaleY);
+      viewState.zoom = viewState.minZoom;
+
+      // Center the view
+      resetView();
+    }
+
+    function resetView() {
+      viewState.zoom = viewState.minZoom;
+      viewState.panX = 0;
+      viewState.panY = 0;
+    }
+
+    // Pan handling
+    let isPanning = false;
+    let panStartX = 0;
+    let panStartY = 0;
+    let lastPanX = 0;
+    let lastPanY = 0;
+
+    function handlePanStart(event) {
+      if (viewState.zoom > viewState.minZoom) {
+        isPanning = true;
+        panStartX = event.clientX;
+        panStartY = event.clientY;
+        lastPanX = viewState.panX;
+        lastPanY = viewState.panY;
+        canvas.style.cursor = 'grabbing';
+      }
+    }
+
+    function handlePanMove(event) {
+      if (isPanning) {
+        const dx = event.clientX - panStartX;
+        const dy = event.clientY - panStartY;
+        viewState.panX = lastPanX + dx;
+        viewState.panY = lastPanY + dy;
+        renderMap();
+      } else if (viewState.zoom > viewState.minZoom) {
+        canvas.style.cursor = 'grab';
+      } else {
+        canvas.style.cursor = 'crosshair';
+      }
+    }
+
+    function handlePanEnd() {
+      isPanning = false;
+      if (viewState.zoom > viewState.minZoom) {
+        canvas.style.cursor = 'grab';
+      } else {
+        canvas.style.cursor = 'crosshair';
+      }
+    }
+
+    function handleZoom(event) {
+      event.preventDefault();
+
+      const delta = -event.deltaY * 0.001;
+      const oldZoom = viewState.zoom;
+      viewState.zoom = Math.max(viewState.minZoom, Math.min(viewState.maxZoom, viewState.zoom * (1 + delta)));
+
+      // If zoomed out to minimum, reset pan
+      if (viewState.zoom === viewState.minZoom) {
+        viewState.panX = 0;
+        viewState.panY = 0;
+      } else {
+        // Zoom towards mouse position
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = event.clientX - rect.left - canvas.width / 2;
+        const mouseY = event.clientY - rect.top - canvas.height / 2;
+
+        const zoomRatio = viewState.zoom / oldZoom - 1;
+        viewState.panX -= mouseX * zoomRatio;
+        viewState.panY -= mouseY * zoomRatio;
+      }
+
+      renderMap();
     }
 
     function updateUI() {
@@ -459,12 +592,16 @@
     function renderMap() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Center and scale the map
+      // Calculate transform to center and scale the map
       const centerX = canvas.width / 2;
       const centerY = canvas.height / 2;
+      const mapCenterX = (viewState.mapBounds.minX + viewState.mapBounds.maxX) / 2;
+      const mapCenterY = (viewState.mapBounds.minY + viewState.mapBounds.maxY) / 2;
 
       ctx.save();
-      ctx.translate(centerX, centerY);
+      ctx.translate(centerX + viewState.panX, centerY + viewState.panY);
+      ctx.scale(viewState.zoom, viewState.zoom);
+      ctx.translate(-mapCenterX, -mapCenterY);
 
       // Draw tiles
       gameState.tiles.forEach(tile => {
@@ -580,21 +717,171 @@
       });
 
       ctx.restore();
+
+      // Draw mini-map when zoomed in
+      if (viewState.zoom > viewState.minZoom) {
+        drawMiniMap();
+      }
+
+      // Draw zoom controls hint
+      ctx.save();
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.fillRect(10, 10, 200, 60);
+      ctx.strokeStyle = '#333';
+      ctx.strokeRect(10, 10, 200, 60);
+      ctx.fillStyle = '#333';
+      ctx.font = '12px Arial';
+      ctx.fillText('Scroll: Zoom', 20, 30);
+      ctx.fillText('Drag: Pan (when zoomed)', 20, 50);
+      ctx.fillText(`Zoom: ${(viewState.zoom / viewState.minZoom * 100).toFixed(0)}%`, 20, 65);
+      ctx.restore();
+    }
+
+    function drawMiniMap() {
+      const miniSize = 150;
+      const miniX = canvas.width - miniSize - 20;
+      const miniY = 20;
+      const miniPadding = 5;
+
+      ctx.save();
+
+      // Draw mini-map background
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.fillRect(miniX, miniY, miniSize, miniSize);
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(miniX, miniY, miniSize, miniSize);
+
+      // Calculate mini-map scale
+      const miniScale = (miniSize - miniPadding * 2) / Math.max(viewState.mapBounds.width, viewState.mapBounds.height);
+      const mapCenterX = (viewState.mapBounds.minX + viewState.mapBounds.maxX) / 2;
+      const mapCenterY = (viewState.mapBounds.minY + viewState.mapBounds.maxY) / 2;
+
+      ctx.translate(miniX + miniSize / 2, miniY + miniSize / 2);
+      ctx.scale(miniScale, miniScale);
+      ctx.translate(-mapCenterX, -mapCenterY);
+
+      // Draw simplified map
+      gameState.tiles.forEach(tile => {
+        if (!tile.polygonPoints || tile.polygonPoints.length === 0) return;
+
+        ctx.beginPath();
+        ctx.moveTo(tile.polygonPoints[0][0], tile.polygonPoints[0][1]);
+        for (let i = 1; i < tile.polygonPoints.length; i++) {
+          ctx.lineTo(tile.polygonPoints[i][0], tile.polygonPoints[i][1]);
+        }
+        ctx.closePath();
+
+        const colors = {
+          wood: '#228B22',
+          brick: '#A0522D',
+          sheep: '#90EE90',
+          wheat: '#FFD700',
+          ore: '#708090',
+          desert: '#DEB887'
+        };
+        ctx.fillStyle = colors[tile.resource] || '#ccc';
+        ctx.fill();
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 0.5 / miniScale;
+        ctx.stroke();
+      });
+
+      // Draw viewport indicator
+      const viewportWidth = canvas.width / viewState.zoom;
+      const viewportHeight = canvas.height / viewState.zoom;
+      const viewCenterX = mapCenterX - viewState.panX / viewState.zoom;
+      const viewCenterY = mapCenterY - viewState.panY / viewState.zoom;
+
+      ctx.strokeStyle = 'red';
+      ctx.lineWidth = 2 / miniScale;
+      ctx.strokeRect(
+        viewCenterX - viewportWidth / 2,
+        viewCenterY - viewportHeight / 2,
+        viewportWidth,
+        viewportHeight
+      );
+
+      ctx.restore();
+
+      // Add click handler for mini-map re-centering
+      canvas.addEventListener('click', handleMiniMapClick);
+    }
+
+    function handleMiniMapClick(event) {
+      if (viewState.zoom <= viewState.minZoom) return;
+
+      const miniSize = 150;
+      const miniX = canvas.width - miniSize - 20;
+      const miniY = 20;
+
+      const rect = canvas.getBoundingClientRect();
+      const clickX = event.clientX - rect.left;
+      const clickY = event.clientY - rect.top;
+
+      // Check if click is in mini-map
+      if (clickX >= miniX && clickX <= miniX + miniSize &&
+          clickY >= miniY && clickY <= miniY + miniSize) {
+
+        // Convert click to map coordinates
+        const miniPadding = 5;
+        const miniScale = (miniSize - miniPadding * 2) / Math.max(viewState.mapBounds.width, viewState.mapBounds.height);
+        const mapCenterX = (viewState.mapBounds.minX + viewState.mapBounds.maxX) / 2;
+        const mapCenterY = (viewState.mapBounds.minY + viewState.mapBounds.maxY) / 2;
+
+        const relX = (clickX - miniX - miniSize / 2) / miniScale;
+        const relY = (clickY - miniY - miniSize / 2) / miniScale;
+        const targetMapX = mapCenterX + relX;
+        const targetMapY = mapCenterY + relY;
+
+        // Update pan to center on clicked location
+        viewState.panX = -(targetMapX - mapCenterX) * viewState.zoom;
+        viewState.panY = -(targetMapY - mapCenterY) * viewState.zoom;
+
+        renderMap();
+        return;
+      }
     }
 
     function handleCanvasClick(event) {
+      // First check mini-map click
+      if (viewState.zoom > viewState.minZoom) {
+        const miniSize = 150;
+        const miniX = canvas.width - miniSize - 20;
+        const miniY = 20;
+        const rect = canvas.getBoundingClientRect();
+        const clickX = event.clientX - rect.left;
+        const clickY = event.clientY - rect.top;
+
+        if (clickX >= miniX && clickX <= miniX + miniSize &&
+            clickY >= miniY && clickY <= miniY + miniSize) {
+          handleMiniMapClick(event);
+          return;
+        }
+      }
+
       const rect = canvas.getBoundingClientRect();
-      const x = event.clientX - rect.left - canvas.width / 2;
-      const y = event.clientY - rect.top - canvas.height / 2;
+      const screenX = event.clientX - rect.left;
+      const screenY = event.clientY - rect.top;
+
+      // Transform screen coordinates to map coordinates
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+      const mapCenterX = (viewState.mapBounds.minX + viewState.mapBounds.maxX) / 2;
+      const mapCenterY = (viewState.mapBounds.minY + viewState.mapBounds.maxY) / 2;
+
+      const x = ((screenX - centerX - viewState.panX) / viewState.zoom) + mapCenterX;
+      const y = ((screenY - centerY - viewState.panY) / viewState.zoom) + mapCenterY;
 
       // Check if clicked on a node
+      const clickRadius = 10 / viewState.zoom; // Adjust click radius based on zoom
       const clickedNode = gameState.nodes.find(node => {
         if (!node.location) return false;
         const dist = Math.sqrt(
           Math.pow(x - node.location[0], 2) +
           Math.pow(y - node.location[1], 2)
         );
-        return dist < 10;
+        return dist < clickRadius;
       });
 
       if (clickedNode) {
@@ -615,7 +902,7 @@
           nodeA.location,
           nodeB.location
         );
-        return dist < 10;
+        return dist < clickRadius;
       });
 
       if (clickedEdge) {
