@@ -769,12 +769,15 @@ function generateMapData(mapType, numTiles, erosionRounds) {
     validTriangles = new Set();
 
     // Generate points based on map type
+    // Scale points linearly: 100 tiles = 500 points, so points = numTiles * 5
+    const numPoints = Math.max(500, numTiles * 5);
+
     if (mapType === 'standard-catan') {
-        points = generateHexGrid(500);
+        points = generateHexGrid(numPoints);
     } else if (mapType === 'expanded-hex') {
-        points = generateHexGrid(500);
+        points = generateHexGrid(numPoints);
     } else if (mapType === 'delaunay-polygon') {
-        points = poissonDiscSampling(500);
+        points = poissonDiscSampling(numPoints);
     }
 
     if (points.length < 3) {

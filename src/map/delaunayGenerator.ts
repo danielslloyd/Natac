@@ -9,6 +9,9 @@ export function generateDelaunayMap(params: MapGeneratorParams): MapData {
     targetTileCount = 30
   } = params;
 
-  // Use new map generation with Lloyd's relaxation and erosion (3 rounds for organic coastlines)
-  return generateMapFromVisualization('delaunay-polygon', targetTileCount, 3, seed || Date.now());
+  // Calculate erosion rounds as 4% of tile count
+  const erosionRounds = Math.max(1, Math.round(targetTileCount * 0.04));
+
+  // Use new map generation with Lloyd's relaxation and erosion
+  return generateMapFromVisualization('delaunay-polygon', targetTileCount, erosionRounds, seed || Date.now());
 }
