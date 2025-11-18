@@ -157,10 +157,10 @@ function convertVizDataToMapData(
     node.isBoundary = node.tiles.length < 3;
   });
 
-  // Update tiles to only reference valid nodes
+  // Update tiles to only reference valid nodes, preserving angular order
   tiles.forEach(tile => {
+    // Filter nodes to only valid ones, but keep the original angular sort order
     tile.nodes = tile.nodes.filter(nodeId => validNodeIds.has(nodeId));
-    // Don't update shape yet - we'll set it based on boundary status after edges
   });
 
   // Create edges from green edges (Voronoi edges = tile boundaries)
@@ -204,52 +204,17 @@ function convertVizDataToMapData(
     });
   });
 
-  // Update tiles with their edge IDs and fix node winding order
+  // Build edges and update tiles
   tiles.forEach(tile => {
     if (tile.nodes.length === 0) return;
 
-    // Reorder nodes to form a proper cycle by walking edges
-    const orderedNodes: string[] = [];
-    const remainingNodes = new Set(tile.nodes);
-
-    // Start with first node
-    let currentNode = tile.nodes[0];
-    orderedNodes.push(currentNode);
-    remainingNodes.delete(currentNode);
-
-    // Walk the perimeter by finding edges
-    while (remainingNodes.size > 0) {
-      // Find an edge that connects currentNode to another node in remainingNodes
-      const nextEdge = edges.find(e => {
-        if (e.nodeA === currentNode && remainingNodes.has(e.nodeB)) return true;
-        if (e.nodeB === currentNode && remainingNodes.has(e.nodeA)) return true;
-        return false;
-      });
-
-      if (!nextEdge) {
-        // Can't find next edge - might be a boundary tile with missing edges
-        // Just add remaining nodes in original order
-        remainingNodes.forEach(nodeId => orderedNodes.push(nodeId));
-        break;
-      }
-
-      // Move to next node
-      const nextNode = nextEdge.nodeA === currentNode ? nextEdge.nodeB : nextEdge.nodeA;
-      orderedNodes.push(nextNode);
-      remainingNodes.delete(nextNode);
-      currentNode = nextNode;
-    }
-
-    // Update tile nodes with proper winding order
-    tile.nodes = orderedNodes;
-
-    // Now build edges list using the ordered nodes
+    // Build edges list using the angular-ordered nodes
     const tileEdges: string[] = [];
     for (let i = 0; i < tile.nodes.length; i++) {
       const nodeA = tile.nodes[i];
       const nodeB = tile.nodes[(i + 1) % tile.nodes.length];
 
-      // Find edge connecting these nodes
+      // Find edge connecting these consecutive nodes
       const edge = edges.find(e =>
         (e.nodeA === nodeA && e.nodeB === nodeB) ||
         (e.nodeA === nodeB && e.nodeB === nodeA)
