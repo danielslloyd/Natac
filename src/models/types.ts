@@ -26,13 +26,15 @@ export interface Tile {
   edges: ID[]; // edge IDs making up tile polygon
   nodes: ID[]; // vertex/node IDs in clockwise order
   robberPresent?: boolean; // true if robber on this tile
+  isBoundary?: boolean; // true if tile is on the edge of the map (can have fewer edges/nodes than shape)
 }
 
 export interface Node {
   id: ID;
   location?: [number, number]; // optional for coordinate-based maps
-  tiles: ID[]; // must be length == 3 (invariant)
+  tiles: ID[]; // 1-3 tiles (3 for interior, 1-2 for boundary)
   occupant?: { playerId: ID; type: 'settlement' | 'city' } | null;
+  isBoundary?: boolean; // true if node is on the edge of the map (has 1-2 tiles instead of 3)
 }
 
 export interface Edge {
@@ -42,6 +44,7 @@ export interface Edge {
   tileLeft?: ID | null; // optional references to adjacent tiles
   tileRight?: ID | null;
   roadOwner?: ID | null; // playerId or null
+  isBoundary?: boolean; // true if edge is on the edge of the map (has only one tile)
 }
 
 export interface Knight {
