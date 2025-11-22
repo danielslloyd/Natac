@@ -54,6 +54,29 @@ export interface Knight {
   active: boolean;
 }
 
+// AI Personality types
+export type AIPersonality = 'robert' | 'lenore' | 'trey' | 'bob';
+
+// Trade proposal interfaces
+export interface ResourceOffer {
+  current: Record<Resource, number>; // Resources available now
+  futures?: Record<Resource, number>; // Resources from next turn (if futures trading enabled)
+}
+
+export interface TradeProposal {
+  id: ID;
+  proposerId: ID; // Player making the proposal
+  targetId: ID | null; // Specific player or null for open to all
+  offering: ResourceOffer; // What proposer offers
+  requesting: ResourceOffer; // What proposer wants
+  status: 'pending' | 'accepted' | 'countered' | 'declined' | 'executed' | 'expired';
+  acceptedBy: ID[]; // Players who accepted this proposal
+  counterOffers: ID[]; // IDs of counter-proposals
+  createdTurn: number; // Turn number when created
+  expiresAfterDeclines?: number; // Auto-delete after this many declines
+  currentDeclines: number; // Number of players who declined
+}
+
 export interface Player {
   id: ID;
   name: string;
@@ -66,6 +89,8 @@ export interface Player {
   victoryPoints: number;
   longestRoadLength: number;
   armySize: number;
+  aiPersonality?: AIPersonality;
+  isAI?: boolean;
 }
 
 export interface GameOptions {
@@ -76,6 +101,7 @@ export interface GameOptions {
   expandedMapSize?: number; // for expanded hex grids
   delaunayTileCount?: number; // for delaunay maps
   seed?: string | number;
+  futuresTrading?: boolean; // Enable trading next turn's resources
 }
 
 export interface GameState {
@@ -99,6 +125,7 @@ export interface GameState {
   largestArmyOwner: ID | null;
   seed?: string | number;
   options: GameOptions;
+  tradeProposals: TradeProposal[];
 }
 
 export interface MapData {

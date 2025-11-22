@@ -18,6 +18,25 @@ export {
 } from '../core/robber.js';
 
 export {
+  validateCreateTradeProposal,
+  createTradeProposal,
+  validateAcceptTradeProposal,
+  acceptTradeProposal,
+  declineTradeProposal,
+  cancelTradeProposal,
+  validateExecuteTrade,
+  executeTrade,
+  createCounterOffer
+} from '../core/trade.js';
+
+export {
+  shouldAcceptTrade,
+  generateAITradeProposal,
+  generateAICounterOffer,
+  getAIBuildingPriority
+} from '../core/ai.js';
+
+export {
   generateMap,
   validateMap,
   validateMapOrThrow
