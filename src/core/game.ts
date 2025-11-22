@@ -38,13 +38,22 @@ export function createGame(
       [ResourceEnum.WHEAT]: 0,
       [ResourceEnum.DESERT]: 0
     },
+    futureResources: {
+      [ResourceEnum.ORE]: 0,
+      [ResourceEnum.SHEEP]: 0,
+      [ResourceEnum.WOOD]: 0,
+      [ResourceEnum.BRICK]: 0,
+      [ResourceEnum.WHEAT]: 0,
+      [ResourceEnum.DESERT]: 0
+    },
     roads: [],
     settlements: [],
     cities: [],
     knights: [],
     victoryPoints: 0,
     longestRoadLength: 0,
-    armySize: 0
+    armySize: 0,
+    isAI: false
   }));
 
   // Generate map
@@ -77,6 +86,7 @@ export function createGame(
       round: 0,
       settlementsPlaced: 0
     },
+    tradeProposals: [],
     diceHistory: [],
     robberTileId,
     longestRoadOwner: null,

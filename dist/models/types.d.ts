@@ -45,11 +45,39 @@ export interface Knight {
     nodeId?: ID;
     active: boolean;
 }
+export interface GameOptions {
+    mapType: 'standard' | 'expanded-hex' | 'expanded-delaunay';
+    allowRobberOnDesertOnly?: boolean;
+    enhancedKnights?: boolean;
+    allowFuturesTrades?: boolean;
+    maxPlayers?: number;
+    expandedMapSize?: number;
+    delaunayTileCount?: number;
+    seed?: string | number;
+}
+export interface TradeOffer {
+    current: Partial<Record<Resource, number>>;
+    future: Partial<Record<Resource, number>>;
+}
+export interface TradeProposal {
+    id: ID;
+    proposerId: ID;
+    proposerOffer: TradeOffer;
+    recipientId: ID;
+    recipientOffer: TradeOffer;
+    status: 'pending' | 'accepted' | 'declined' | 'countered';
+    agreedBy: ID[];
+    declinedBy: ID[];
+    createdAt: number;
+    counterOffers?: TradeProposal[];
+}
+export type AIPersonality = 'robert' | 'lenore' | 'trey' | 'bob';
 export interface Player {
     id: ID;
     name: string;
     color?: string;
     resources: Record<Resource, number>;
+    futureResources: Record<Resource, number>;
     roads: ID[];
     settlements: ID[];
     cities: ID[];
@@ -57,15 +85,8 @@ export interface Player {
     victoryPoints: number;
     longestRoadLength: number;
     armySize: number;
-}
-export interface GameOptions {
-    mapType: 'standard' | 'expanded-hex' | 'expanded-delaunay';
-    allowRobberOnDesertOnly?: boolean;
-    enhancedKnights?: boolean;
-    maxPlayers?: number;
-    expandedMapSize?: number;
-    delaunayTileCount?: number;
-    seed?: string | number;
+    isAI?: boolean;
+    aiPersonality?: AIPersonality;
 }
 export interface GameState {
     id: ID;
@@ -82,6 +103,7 @@ export interface GameState {
         round: number;
         settlementsPlaced: number;
     };
+    tradeProposals: TradeProposal[];
     diceHistory: number[];
     robberTileId: ID | null;
     longestRoadOwner: ID | null;

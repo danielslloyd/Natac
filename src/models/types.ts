@@ -51,11 +51,43 @@ export interface Knight {
   active: boolean;
 }
 
+export interface GameOptions {
+  mapType: 'standard' | 'expanded-hex' | 'expanded-delaunay';
+  allowRobberOnDesertOnly?: boolean;
+  enhancedKnights?: boolean;
+  allowFuturesTrades?: boolean; // Enable trading future resources
+  maxPlayers?: number;
+  expandedMapSize?: number; // for expanded hex grids
+  delaunayTileCount?: number; // for delaunay maps
+  seed?: string | number;
+}
+
+export interface TradeOffer {
+  current: Partial<Record<Resource, number>>; // Current resources offered/requested
+  future: Partial<Record<Resource, number>>; // Future resources (next production) offered/requested
+}
+
+export interface TradeProposal {
+  id: ID;
+  proposerId: ID;
+  proposerOffer: TradeOffer;
+  recipientId: ID;
+  recipientOffer: TradeOffer;
+  status: 'pending' | 'accepted' | 'declined' | 'countered';
+  agreedBy: ID[]; // Players who have agreed to this proposal
+  declinedBy: ID[]; // Players who have declined
+  createdAt: number; // Timestamp
+  counterOffers?: TradeProposal[]; // Counter-offer proposals
+}
+
+export type AIPersonality = 'robert' | 'lenore' | 'trey' | 'bob';
+
 export interface Player {
   id: ID;
   name: string;
   color?: string;
   resources: Record<Resource, number>;
+  futureResources: Record<Resource, number>; // Committed future resources
   roads: ID[]; // edge IDs owned
   settlements: ID[]; // node IDs
   cities: ID[]; // node IDs
@@ -63,16 +95,8 @@ export interface Player {
   victoryPoints: number;
   longestRoadLength: number;
   armySize: number;
-}
-
-export interface GameOptions {
-  mapType: 'standard' | 'expanded-hex' | 'expanded-delaunay';
-  allowRobberOnDesertOnly?: boolean;
-  enhancedKnights?: boolean;
-  maxPlayers?: number;
-  expandedMapSize?: number; // for expanded hex grids
-  delaunayTileCount?: number; // for delaunay maps
-  seed?: string | number;
+  isAI?: boolean;
+  aiPersonality?: AIPersonality;
 }
 
 export interface GameState {
@@ -90,6 +114,7 @@ export interface GameState {
     round: number; // 0 or 1
     settlementsPlaced: number;
   };
+  tradeProposals: TradeProposal[];
   diceHistory: number[];
   robberTileId: ID | null;
   longestRoadOwner: ID | null;
