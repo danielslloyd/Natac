@@ -1,5 +1,6 @@
 export { createGame, applyAction, validateAction, rollDice, collectResources, getCurrentPlayer, getLegalBuildLocations } from '../core/game.js';
 export { moveRobber, playKnight, handleRobberActivation, getPlayersOnTile } from '../core/robber.js';
+export { purchaseMilitaryKnight, placeWagon, repositionWagon, buildFleet, moveMilitaryKnight, moveFleet, loadKnightOntoFleet, unloadKnightFromFleet, updateKnightSupplyStatus, updateCaptureProgress, collectMaintenanceCosts, resetMovementFlags } from '../core/military.js';
 export { validateCreateTradeProposal, createTradeProposal, validateAcceptTradeProposal, acceptTradeProposal, declineTradeProposal, cancelTradeProposal, validateExecuteTrade, executeTrade, createCounterOffer } from '../core/trade.js';
 export { shouldAcceptTrade, generateAITradeProposal, generateAICounterOffer, getAIBuildingPriority } from '../core/ai.js';
 export { generateMap, validateMap, validateMapOrThrow } from '../map/index.js';

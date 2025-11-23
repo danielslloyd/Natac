@@ -50,8 +50,42 @@ export interface Edge {
 export interface Knight {
   id: ID;
   ownerId: ID;
-  nodeId?: ID; // optional if knight placed at node
+  nodeId?: ID; // optional if knight placed at node (for development card knights)
   active: boolean;
+}
+
+// Military game mode entities
+export interface MilitaryKnight {
+  id: ID;
+  ownerId: ID;
+  tileId: ID; // tile where knight is deployed
+  supplied: boolean; // whether connected to supply chain
+  hasMoved: boolean; // whether moved this turn
+  blockingProduction: boolean; // whether blocking tile production
+  carriedByFleetId?: ID; // if being carried by a fleet
+}
+
+export interface Wagon {
+  id: ID;
+  ownerId: ID;
+  edgeId: ID; // edge where wagon is placed (like roads)
+  hasBeenRepositioned: boolean; // whether repositioned this turn
+}
+
+export interface Fleet {
+  id: ID;
+  ownerId: ID;
+  tileId: ID; // water tile where fleet is positioned
+  hasMoved: boolean; // whether moved this turn
+  carryingKnightId?: ID; // knight being carried
+}
+
+// Track capture progress for settlements/cities
+export interface CaptureProgress {
+  nodeId: ID; // settlement/city being captured
+  attackerId: ID; // player attempting capture
+  turnsHeld: number; // how many turns all adjacent tiles have been surrounded
+  requiredTurns: number; // 3 for settlement, 6 for city
 }
 
 // AI Personality types
@@ -85,10 +119,15 @@ export interface Player {
   roads: ID[]; // edge IDs owned
   settlements: ID[]; // node IDs
   cities: ID[]; // node IDs
-  knights: ID[]; // knights placed (if using knights)
+  knights: ID[]; // knights placed (if using development card knights)
   victoryPoints: number;
   longestRoadLength: number;
   armySize: number;
+  // Military game mode
+  militaryKnights?: ID[]; // military knight IDs
+  wagons?: ID[]; // wagon IDs
+  fleets?: ID[]; // fleet IDs
+  // AI and trading
   aiPersonality?: AIPersonality;
   isAI?: boolean;
 }
@@ -97,6 +136,7 @@ export interface GameOptions {
   mapType: 'standard' | 'expanded-hex' | 'expanded-delaunay';
   allowRobberOnDesertOnly?: boolean;
   enhancedKnights?: boolean;
+  militaryMode?: boolean; // enable military conquest game mode
   maxPlayers?: number;
   expandedMapSize?: number; // for expanded hex grids
   delaunayTileCount?: number; // for delaunay maps
@@ -125,6 +165,12 @@ export interface GameState {
   largestArmyOwner: ID | null;
   seed?: string | number;
   options: GameOptions;
+  // Military game mode
+  militaryKnights?: MilitaryKnight[];
+  wagons?: Wagon[];
+  fleets?: Fleet[];
+  captureProgress?: CaptureProgress[];
+  // Trading
   tradeProposals: TradeProposal[];
 }
 
@@ -173,6 +219,35 @@ export const BUILDING_COSTS = {
     [Resource.SHEEP]: 1,
     [Resource.WHEAT]: 1,
     [Resource.ORE]: 1
+  },
+  // Military game mode costs
+  militaryKnight: {
+    [Resource.ORE]: 3,
+    [Resource.WHEAT]: 3,
+    [Resource.SHEEP]: 3
+  },
+  wagon: {
+    [Resource.WOOD]: 2,
+    [Resource.WHEAT]: 2
+  },
+  fleet: {
+    [Resource.WOOD]: 3,
+    [Resource.SHEEP]: 3
+  }
+} as const;
+
+// Maintenance costs (per turn)
+export const MAINTENANCE_COSTS = {
+  militaryKnight: {
+    [Resource.WHEAT]: 1,
+    [Resource.SHEEP]: 1
+  },
+  wagon: {
+    [Resource.WHEAT]: 1
+  },
+  fleet: {
+    [Resource.WOOD]: 1,
+    [Resource.SHEEP]: 1
   }
 } as const;
 
