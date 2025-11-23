@@ -28,6 +28,34 @@ export const BUILDING_COSTS = {
         [Resource.SHEEP]: 1,
         [Resource.WHEAT]: 1,
         [Resource.ORE]: 1
+    },
+    // Military game mode costs
+    militaryKnight: {
+        [Resource.ORE]: 3,
+        [Resource.WHEAT]: 3,
+        [Resource.SHEEP]: 3
+    },
+    wagon: {
+        [Resource.WOOD]: 2,
+        [Resource.WHEAT]: 2
+    },
+    fleet: {
+        [Resource.WOOD]: 3,
+        [Resource.SHEEP]: 3
+    }
+};
+// Maintenance costs (per turn)
+export const MAINTENANCE_COSTS = {
+    militaryKnight: {
+        [Resource.WHEAT]: 1,
+        [Resource.SHEEP]: 1
+    },
+    wagon: {
+        [Resource.WHEAT]: 1
+    },
+    fleet: {
+        [Resource.WOOD]: 1,
+        [Resource.SHEEP]: 1
     }
 };
 // Victory points

@@ -14,6 +14,20 @@ import { Resource as ResourceEnum, BUILDING_COSTS } from '../models/types.js';
 import { generateMap } from '../map/index.js';
 import { generateId, SeededRandom } from './utils.js';
 import { getAdjacentNodes, findEdge } from '../map/validator.js';
+import {
+  purchaseMilitaryKnight,
+  placeWagon,
+  repositionWagon,
+  buildFleet,
+  moveMilitaryKnight,
+  moveFleet,
+  loadKnightOntoFleet,
+  unloadKnightFromFleet,
+  updateKnightSupplyStatus,
+  updateCaptureProgress,
+  collectMaintenanceCosts,
+  resetMovementFlags
+} from './military.js';
 
 export function createGame(
   playerNames: string[],
@@ -44,7 +58,12 @@ export function createGame(
     knights: [],
     victoryPoints: 0,
     longestRoadLength: 0,
-    armySize: 0
+    armySize: 0,
+    ...(options.militaryMode ? {
+      militaryKnights: [],
+      wagons: [],
+      fleets: []
+    } : {})
   }));
 
   // Generate map
@@ -82,7 +101,13 @@ export function createGame(
     longestRoadOwner: null,
     largestArmyOwner: null,
     seed: options.seed,
-    options
+    options,
+    ...(options.militaryMode ? {
+      militaryKnights: [],
+      wagons: [],
+      fleets: [],
+      captureProgress: []
+    } : {})
   };
 
   return gameState;
@@ -99,6 +124,21 @@ export function validateAction(state: GameState, action: Action): ActionResult {
   const player = state.players.find(p => p.id === action.playerId);
   if (!player) {
     return { ok: false, reason: 'Player not found' };
+  }
+
+  // Military mode actions handled by military module
+  if (state.options.militaryMode) {
+    switch (action.type) {
+      case 'purchaseMilitaryKnight':
+      case 'placeWagon':
+      case 'repositionWagon':
+      case 'buildFleet':
+      case 'moveMilitaryKnight':
+      case 'moveFleet':
+      case 'loadKnightOntoFleet':
+      case 'unloadKnightFromFleet':
+        return { ok: true }; // Validation done in military module
+    }
   }
 
   switch (action.type) {
@@ -333,6 +373,21 @@ export function applyAction(state: GameState, action: Action): GameState {
     }
 
     case 'endTurn': {
+      // Military mode: collect maintenance and update capture progress
+      if (newState.options.militaryMode && newState.phase === 'main') {
+        // Collect maintenance costs for current player (before ending turn)
+        const maintenanceResult = collectMaintenanceCosts(newState, player.id);
+        if (!maintenanceResult.ok) {
+          throw new Error(`Maintenance payment failed: ${maintenanceResult.reason}`);
+        }
+
+        // Update capture progress
+        updateCaptureProgress(newState);
+
+        // Reset movement flags for next player
+        resetMovementFlags(newState);
+      }
+
       newState.currentPlayerIdx = (newState.currentPlayerIdx + 1) % newState.players.length;
 
       // Handle setup phase progression
@@ -355,6 +410,55 @@ export function applyAction(state: GameState, action: Action): GameState {
       }
       break;
     }
+
+    // Military mode actions
+    case 'purchaseMilitaryKnight': {
+      const result = purchaseMilitaryKnight(newState, player.id, action.payload.tileId);
+      if (!result.ok) throw new Error(result.reason);
+      break;
+    }
+
+    case 'placeWagon': {
+      const result = placeWagon(newState, player.id, action.payload.edgeId);
+      if (!result.ok) throw new Error(result.reason);
+      break;
+    }
+
+    case 'repositionWagon': {
+      const result = repositionWagon(newState, player.id, action.payload.wagonId, action.payload.newEdgeId);
+      if (!result.ok) throw new Error(result.reason);
+      break;
+    }
+
+    case 'buildFleet': {
+      const result = buildFleet(newState, player.id, action.payload.tileId);
+      if (!result.ok) throw new Error(result.reason);
+      break;
+    }
+
+    case 'moveMilitaryKnight': {
+      const result = moveMilitaryKnight(newState, player.id, action.payload.knightId, action.payload.targetTileId);
+      if (!result.ok) throw new Error(result.reason);
+      break;
+    }
+
+    case 'moveFleet': {
+      const result = moveFleet(newState, player.id, action.payload.fleetId, action.payload.targetTileId);
+      if (!result.ok) throw new Error(result.reason);
+      break;
+    }
+
+    case 'loadKnightOntoFleet': {
+      const result = loadKnightOntoFleet(newState, player.id, action.payload.knightId, action.payload.fleetId);
+      if (!result.ok) throw new Error(result.reason);
+      break;
+    }
+
+    case 'unloadKnightFromFleet': {
+      const result = unloadKnightFromFleet(newState, player.id, action.payload.fleetId, action.payload.targetTileId);
+      if (!result.ok) throw new Error(result.reason);
+      break;
+    }
   }
 
   return newState;
@@ -369,6 +473,17 @@ export function collectResources(state: GameState, diceRoll: number): GameState 
   );
 
   producingTiles.forEach(tile => {
+    // Check if tile is blocked by a military knight
+    let tileBlockedBy: ID | null = null;
+    if (newState.options.militaryMode && newState.militaryKnights) {
+      const blockingKnight = newState.militaryKnights.find(
+        k => k.tileId === tile.id && k.blockingProduction
+      );
+      if (blockingKnight) {
+        tileBlockedBy = blockingKnight.ownerId;
+      }
+    }
+
     // Find all nodes on this tile
     tile.nodes.forEach(nodeId => {
       const node = newState.nodes.find(n => n.id === nodeId);
@@ -376,6 +491,11 @@ export function collectResources(state: GameState, diceRoll: number): GameState 
 
       const player = newState.players.find(p => p.id === node.occupant!.playerId);
       if (!player) return;
+
+      // In military mode, if tile is blocked and this player doesn't own the blocking knight, skip
+      if (tileBlockedBy && tileBlockedBy !== player.id) {
+        return;
+      }
 
       // Check for blocking knights (enhanced mode)
       if (state.options.enhancedKnights) {

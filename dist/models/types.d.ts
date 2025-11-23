@@ -48,6 +48,34 @@ export interface Knight {
     nodeId?: ID;
     active: boolean;
 }
+export interface MilitaryKnight {
+    id: ID;
+    ownerId: ID;
+    tileId: ID;
+    supplied: boolean;
+    hasMoved: boolean;
+    blockingProduction: boolean;
+    carriedByFleetId?: ID;
+}
+export interface Wagon {
+    id: ID;
+    ownerId: ID;
+    edgeId: ID;
+    hasBeenRepositioned: boolean;
+}
+export interface Fleet {
+    id: ID;
+    ownerId: ID;
+    tileId: ID;
+    hasMoved: boolean;
+    carryingKnightId?: ID;
+}
+export interface CaptureProgress {
+    nodeId: ID;
+    attackerId: ID;
+    turnsHeld: number;
+    requiredTurns: number;
+}
 export interface Player {
     id: ID;
     name: string;
@@ -60,11 +88,15 @@ export interface Player {
     victoryPoints: number;
     longestRoadLength: number;
     armySize: number;
+    militaryKnights?: ID[];
+    wagons?: ID[];
+    fleets?: ID[];
 }
 export interface GameOptions {
     mapType: 'standard' | 'expanded-hex' | 'expanded-delaunay';
     allowRobberOnDesertOnly?: boolean;
     enhancedKnights?: boolean;
+    militaryMode?: boolean;
     maxPlayers?: number;
     expandedMapSize?: number;
     delaunayTileCount?: number;
@@ -91,6 +123,10 @@ export interface GameState {
     largestArmyOwner: ID | null;
     seed?: string | number;
     options: GameOptions;
+    militaryKnights?: MilitaryKnight[];
+    wagons?: Wagon[];
+    fleets?: Fleet[];
+    captureProgress?: CaptureProgress[];
 }
 export interface MapData {
     tiles: Tile[];
@@ -137,6 +173,32 @@ export declare const BUILDING_COSTS: {
         readonly sheep: 1;
         readonly wheat: 1;
         readonly ore: 1;
+    };
+    readonly militaryKnight: {
+        readonly ore: 3;
+        readonly wheat: 3;
+        readonly sheep: 3;
+    };
+    readonly wagon: {
+        readonly wood: 2;
+        readonly wheat: 2;
+    };
+    readonly fleet: {
+        readonly wood: 3;
+        readonly sheep: 3;
+    };
+};
+export declare const MAINTENANCE_COSTS: {
+    readonly militaryKnight: {
+        readonly wheat: 1;
+        readonly sheep: 1;
+    };
+    readonly wagon: {
+        readonly wheat: 1;
+    };
+    readonly fleet: {
+        readonly wood: 1;
+        readonly sheep: 1;
     };
 };
 export declare const VICTORY_POINTS: {

@@ -18,6 +18,21 @@ export {
 } from '../core/robber.js';
 
 export {
+  purchaseMilitaryKnight,
+  placeWagon,
+  repositionWagon,
+  buildFleet,
+  moveMilitaryKnight,
+  moveFleet,
+  loadKnightOntoFleet,
+  unloadKnightFromFleet,
+  updateKnightSupplyStatus,
+  updateCaptureProgress,
+  collectMaintenanceCosts,
+  resetMovementFlags
+} from '../core/military.js';
+
+export {
   generateMap,
   validateMap,
   validateMapOrThrow
