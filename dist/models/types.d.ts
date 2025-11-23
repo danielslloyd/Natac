@@ -76,6 +76,24 @@ export interface CaptureProgress {
     turnsHeld: number;
     requiredTurns: number;
 }
+export type AIPersonality = 'robert' | 'lenore' | 'trey' | 'bob';
+export interface ResourceOffer {
+    current: Record<Resource, number>;
+    futures?: Record<Resource, number>;
+}
+export interface TradeProposal {
+    id: ID;
+    proposerId: ID;
+    targetId: ID | null;
+    offering: ResourceOffer;
+    requesting: ResourceOffer;
+    status: 'pending' | 'accepted' | 'countered' | 'declined' | 'executed' | 'expired';
+    acceptedBy: ID[];
+    counterOffers: ID[];
+    createdTurn: number;
+    expiresAfterDeclines?: number;
+    currentDeclines: number;
+}
 export interface Player {
     id: ID;
     name: string;
@@ -91,6 +109,8 @@ export interface Player {
     militaryKnights?: ID[];
     wagons?: ID[];
     fleets?: ID[];
+    aiPersonality?: AIPersonality;
+    isAI?: boolean;
 }
 export interface GameOptions {
     mapType: 'standard' | 'expanded-hex' | 'expanded-delaunay';
@@ -101,6 +121,7 @@ export interface GameOptions {
     expandedMapSize?: number;
     delaunayTileCount?: number;
     seed?: string | number;
+    futuresTrading?: boolean;
 }
 export interface GameState {
     id: ID;
@@ -127,6 +148,7 @@ export interface GameState {
     wagons?: Wagon[];
     fleets?: Fleet[];
     captureProgress?: CaptureProgress[];
+    tradeProposals: TradeProposal[];
 }
 export interface MapData {
     tiles: Tile[];

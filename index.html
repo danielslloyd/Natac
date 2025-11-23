@@ -294,6 +294,275 @@
       font-size: 0.9rem;
       border: 1px solid #e0e0e0;
     }
+
+    /* Trade Modal Styles */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      justify-content: center;
+      align-items: center;
+    }
+
+    .modal.active {
+      display: flex;
+    }
+
+    .modal-content {
+      background: white;
+      border-radius: 16px;
+      padding: 30px;
+      max-width: 600px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 15px;
+      border-bottom: 2px solid #e0e0e0;
+    }
+
+    .modal-header h2 {
+      color: #333;
+      font-size: 1.5rem;
+    }
+
+    .close-btn {
+      background: none;
+      border: none;
+      font-size: 1.5rem;
+      cursor: pointer;
+      color: #999;
+      padding: 0;
+      width: 30px;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .close-btn:hover {
+      color: #333;
+    }
+
+    .trade-section {
+      margin-bottom: 25px;
+    }
+
+    .trade-section h3 {
+      color: #667eea;
+      margin-bottom: 15px;
+      font-size: 1.1rem;
+    }
+
+    .resource-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+      gap: 15px;
+      margin-bottom: 15px;
+    }
+
+    .resource-input {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .resource-input label {
+      font-size: 0.9rem;
+      color: #555;
+      font-weight: 500;
+      text-transform: capitalize;
+    }
+
+    .resource-input input {
+      padding: 8px;
+      border: 2px solid #e0e0e0;
+      border-radius: 6px;
+      font-size: 1rem;
+      width: 100%;
+    }
+
+    .resource-input input:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    .target-player-select {
+      margin-bottom: 20px;
+    }
+
+    .target-player-select label {
+      display: block;
+      margin-bottom: 8px;
+      color: #555;
+      font-weight: 500;
+    }
+
+    .target-player-select select {
+      width: 100%;
+      padding: 10px;
+      border: 2px solid #e0e0e0;
+      border-radius: 6px;
+      font-size: 1rem;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      margin-top: 25px;
+    }
+
+    .modal-actions button {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: #667eea;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #5568d3;
+    }
+
+    .btn-secondary {
+      background: #e0e0e0;
+      color: #333;
+    }
+
+    .btn-secondary:hover {
+      background: #d0d0d0;
+    }
+
+    .trade-proposals-section {
+      margin-top: 20px;
+      padding: 15px;
+      background: white;
+      border-radius: 8px;
+    }
+
+    .trade-proposal {
+      background: #f8f9fa;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 10px;
+    }
+
+    .trade-proposal.active {
+      border-color: #667eea;
+      background: #f0f2ff;
+    }
+
+    .trade-proposal-header {
+      font-weight: bold;
+      margin-bottom: 10px;
+      color: #333;
+    }
+
+    .trade-details {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 15px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .trade-offer, .trade-request {
+      font-size: 0.9rem;
+    }
+
+    .trade-arrow {
+      font-size: 1.5rem;
+      color: #667eea;
+    }
+
+    .trade-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .trade-actions button {
+      padding: 6px 12px;
+      border: none;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    .btn-accept {
+      background: #28a745;
+      color: white;
+    }
+
+    .btn-decline {
+      background: #dc3545;
+      color: white;
+    }
+
+    .btn-counter {
+      background: #ffc107;
+      color: #333;
+    }
+
+    .btn-execute {
+      background: #667eea;
+      color: white;
+    }
+
+    .btn-cancel {
+      background: #6c757d;
+      color: white;
+    }
+
+    .futures-toggle {
+      margin-bottom: 15px;
+    }
+
+    .futures-toggle label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+
+    .futures-section {
+      margin-top: 15px;
+      padding-top: 15px;
+      border-top: 1px dashed #ccc;
+    }
+
+    .ai-review-banner {
+      background: #fff3cd;
+      border: 2px solid #ffc107;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 15px;
+      text-align: center;
+    }
+
+    .ai-review-banner strong {
+      color: #856404;
+    }
   </style>
 </head>
 <body>
@@ -401,9 +670,15 @@
           <div class="controls">
             <button id="rollDiceBtn">Roll Dice</button>
             <button id="endTurnBtn">End Turn</button>
+            <button id="proposeTradeBtn">Propose Trade</button>
           </div>
 
           <div id="diceResult" style="margin-top: 15px; font-size: 1.2rem; font-weight: bold;"></div>
+
+          <div class="trade-proposals-section">
+            <h3 style="margin-bottom: 10px;">Active Trades</h3>
+            <div id="tradeProposalsList"></div>
+          </div>
         </div>
 
         <div class="canvas-container">
@@ -418,6 +693,132 @@
             Click on nodes to place settlements, click on edges to place roads
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Trade Proposal Modal -->
+  <div id="tradeModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Propose Trade</h2>
+        <button class="close-btn" id="closeTradeModal">&times;</button>
+      </div>
+
+      <div class="target-player-select">
+        <label>Trade With:</label>
+        <select id="tradeTargetPlayer">
+          <option value="">Any Player (Open Trade)</option>
+        </select>
+      </div>
+
+      <div class="trade-section">
+        <h3>You Offer</h3>
+        <div class="resource-grid" id="offeringCurrentGrid">
+          <div class="resource-input">
+            <label>Ore</label>
+            <input type="number" min="0" value="0" data-resource="ore" data-type="current-offer">
+          </div>
+          <div class="resource-input">
+            <label>Sheep</label>
+            <input type="number" min="0" value="0" data-resource="sheep" data-type="current-offer">
+          </div>
+          <div class="resource-input">
+            <label>Wood</label>
+            <input type="number" min="0" value="0" data-resource="wood" data-type="current-offer">
+          </div>
+          <div class="resource-input">
+            <label>Brick</label>
+            <input type="number" min="0" value="0" data-resource="brick" data-type="current-offer">
+          </div>
+          <div class="resource-input">
+            <label>Wheat</label>
+            <input type="number" min="0" value="0" data-resource="wheat" data-type="current-offer">
+          </div>
+        </div>
+
+        <div id="offeringFuturesSection" class="futures-section" style="display: none;">
+          <h4 style="margin-bottom: 10px; color: #666;">Next Turn's Resources</h4>
+          <div class="resource-grid" id="offeringFuturesGrid">
+            <div class="resource-input">
+              <label>Ore</label>
+              <input type="number" min="0" value="0" data-resource="ore" data-type="futures-offer">
+            </div>
+            <div class="resource-input">
+              <label>Sheep</label>
+              <input type="number" min="0" value="0" data-resource="sheep" data-type="futures-offer">
+            </div>
+            <div class="resource-input">
+              <label>Wood</label>
+              <input type="number" min="0" value="0" data-resource="wood" data-type="futures-offer">
+            </div>
+            <div class="resource-input">
+              <label>Brick</label>
+              <input type="number" min="0" value="0" data-resource="brick" data-type="futures-offer">
+            </div>
+            <div class="resource-input">
+              <label>Wheat</label>
+              <input type="number" min="0" value="0" data-resource="wheat" data-type="futures-offer">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="trade-section">
+        <h3>You Request</h3>
+        <div class="resource-grid" id="requestingCurrentGrid">
+          <div class="resource-input">
+            <label>Ore</label>
+            <input type="number" min="0" value="0" data-resource="ore" data-type="current-request">
+          </div>
+          <div class="resource-input">
+            <label>Sheep</label>
+            <input type="number" min="0" value="0" data-resource="sheep" data-type="current-request">
+          </div>
+          <div class="resource-input">
+            <label>Wood</label>
+            <input type="number" min="0" value="0" data-resource="wood" data-type="current-request">
+          </div>
+          <div class="resource-input">
+            <label>Brick</label>
+            <input type="number" min="0" value="0" data-resource="brick" data-type="current-request">
+          </div>
+          <div class="resource-input">
+            <label>Wheat</label>
+            <input type="number" min="0" value="0" data-resource="wheat" data-type="current-request">
+          </div>
+        </div>
+
+        <div id="requestingFuturesSection" class="futures-section" style="display: none;">
+          <h4 style="margin-bottom: 10px; color: #666;">Next Turn's Resources</h4>
+          <div class="resource-grid" id="requestingFuturesGrid">
+            <div class="resource-input">
+              <label>Ore</label>
+              <input type="number" min="0" value="0" data-resource="ore" data-type="futures-request">
+            </div>
+            <div class="resource-input">
+              <label>Sheep</label>
+              <input type="number" min="0" value="0" data-resource="sheep" data-type="futures-request">
+            </div>
+            <div class="resource-input">
+              <label>Wood</label>
+              <input type="number" min="0" value="0" data-resource="wood" data-type="futures-request">
+            </div>
+            <div class="resource-input">
+              <label>Brick</label>
+              <input type="number" min="0" value="0" data-resource="brick" data-type="futures-request">
+            </div>
+            <div class="resource-input">
+              <label>Wheat</label>
+              <input type="number" min="0" value="0" data-resource="wheat" data-type="futures-request">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-secondary" id="cancelTradeBtn">Cancel</button>
+        <button class="btn-primary" id="submitTradeBtn">Propose Trade</button>
       </div>
     </div>
   </div>
@@ -1136,6 +1537,327 @@
       updateUI();
       renderMap();
     }
+
+    // ========== TRADE PROPOSAL FUNCTIONS ==========
+
+    function setupTradeUI() {
+      const proposeTradeBtn = document.getElementById('proposeTradeBtn');
+      const tradeModal = document.getElementById('tradeModal');
+      const closeTradeModal = document.getElementById('closeTradeModal');
+      const cancelTradeBtn = document.getElementById('cancelTradeBtn');
+      const submitTradeBtn = document.getElementById('submitTradeBtn');
+
+      // Open modal
+      proposeTradeBtn.onclick = () => {
+        openTradeModal();
+      };
+
+      // Close modal
+      closeTradeModal.onclick = () => {
+        tradeModal.classList.remove('active');
+      };
+
+      cancelTradeBtn.onclick = () => {
+        tradeModal.classList.remove('active');
+      };
+
+      // Submit trade
+      submitTradeBtn.onclick = () => {
+        submitTradeProposal();
+      };
+
+      // Close on background click
+      tradeModal.onclick = (e) => {
+        if (e.target === tradeModal) {
+          tradeModal.classList.remove('active');
+        }
+      };
+    }
+
+    function openTradeModal() {
+      const modal = document.getElementById('tradeModal');
+      const currentPlayer = Game.getCurrentPlayer(gameState);
+
+      // Populate target player dropdown
+      const targetSelect = document.getElementById('tradeTargetPlayer');
+      targetSelect.innerHTML = '<option value="">Any Player (Open Trade)</option>';
+
+      gameState.players.forEach(player => {
+        if (player.id !== currentPlayer.id) {
+          const option = document.createElement('option');
+          option.value = player.id;
+          option.textContent = player.name;
+          targetSelect.appendChild(option);
+        }
+      });
+
+      // Show/hide futures sections based on game options
+      const futuresEnabled = gameState.options.futuresTrading || false;
+      document.getElementById('offeringFuturesSection').style.display = futuresEnabled ? 'block' : 'none';
+      document.getElementById('requestingFuturesSection').style.display = futuresEnabled ? 'block' : 'none';
+
+      // Reset all inputs
+      modal.querySelectorAll('input[type="number"]').forEach(input => {
+        input.value = '0';
+      });
+
+      modal.classList.add('active');
+    }
+
+    function submitTradeProposal() {
+      const currentPlayer = Game.getCurrentPlayer(gameState);
+      const targetId = document.getElementById('tradeTargetPlayer').value || null;
+
+      // Collect offering
+      const offering = {
+        current: {
+          ore: parseInt(document.querySelector('[data-resource="ore"][data-type="current-offer"]').value) || 0,
+          sheep: parseInt(document.querySelector('[data-resource="sheep"][data-type="current-offer"]').value) || 0,
+          wood: parseInt(document.querySelector('[data-resource="wood"][data-type="current-offer"]').value) || 0,
+          brick: parseInt(document.querySelector('[data-resource="brick"][data-type="current-offer"]').value) || 0,
+          wheat: parseInt(document.querySelector('[data-resource="wheat"][data-type="current-offer"]').value) || 0,
+          desert: 0
+        }
+      };
+
+      // Add futures if enabled
+      if (gameState.options.futuresTrading) {
+        offering.futures = {
+          ore: parseInt(document.querySelector('[data-resource="ore"][data-type="futures-offer"]').value) || 0,
+          sheep: parseInt(document.querySelector('[data-resource="sheep"][data-type="futures-offer"]').value) || 0,
+          wood: parseInt(document.querySelector('[data-resource="wood"][data-type="futures-offer"]').value) || 0,
+          brick: parseInt(document.querySelector('[data-resource="brick"][data-type="futures-offer"]').value) || 0,
+          wheat: parseInt(document.querySelector('[data-resource="wheat"][data-type="futures-offer"]').value) || 0,
+          desert: 0
+        };
+      }
+
+      // Collect requesting
+      const requesting = {
+        current: {
+          ore: parseInt(document.querySelector('[data-resource="ore"][data-type="current-request"]').value) || 0,
+          sheep: parseInt(document.querySelector('[data-resource="sheep"][data-type="current-request"]').value) || 0,
+          wood: parseInt(document.querySelector('[data-resource="wood"][data-type="current-request"]').value) || 0,
+          brick: parseInt(document.querySelector('[data-resource="brick"][data-type="current-request"]').value) || 0,
+          wheat: parseInt(document.querySelector('[data-resource="wheat"][data-type="current-request"]').value) || 0,
+          desert: 0
+        }
+      };
+
+      // Add futures if enabled
+      if (gameState.options.futuresTrading) {
+        requesting.futures = {
+          ore: parseInt(document.querySelector('[data-resource="ore"][data-type="futures-request"]').value) || 0,
+          sheep: parseInt(document.querySelector('[data-resource="sheep"][data-type="futures-request"]').value) || 0,
+          wood: parseInt(document.querySelector('[data-resource="wood"][data-type="futures-request"]').value) || 0,
+          brick: parseInt(document.querySelector('[data-resource="brick"][data-type="futures-request"]').value) || 0,
+          wheat: parseInt(document.querySelector('[data-resource="wheat"][data-type="futures-request"]').value) || 0,
+          desert: 0
+        };
+      }
+
+      // Validate at least one resource on each side
+      const offeringTotal = Object.values(offering.current).reduce((a, b) => a + b, 0) +
+        (offering.futures ? Object.values(offering.futures).reduce((a, b) => a + b, 0) : 0);
+      const requestingTotal = Object.values(requesting.current).reduce((a, b) => a + b, 0) +
+        (requesting.futures ? Object.values(requesting.futures).reduce((a, b) => a + b, 0) : 0);
+
+      if (offeringTotal === 0) {
+        alert('You must offer at least one resource');
+        return;
+      }
+
+      if (requestingTotal === 0) {
+        alert('You must request at least one resource');
+        return;
+      }
+
+      try {
+        const action = {
+          type: 'createTradeProposal',
+          playerId: currentPlayer.id,
+          payload: {
+            targetId,
+            offering,
+            requesting
+          }
+        };
+
+        gameState = Game.applyAction(gameState, action);
+        document.getElementById('tradeModal').classList.remove('active');
+        updateUI();
+        updateTradesList();
+      } catch (error) {
+        alert('Error creating trade: ' + error.message);
+      }
+    }
+
+    function updateTradesList() {
+      const list = document.getElementById('tradeProposalsList');
+      const currentPlayer = Game.getCurrentPlayer(gameState);
+
+      if (!gameState.tradeProposals || gameState.tradeProposals.length === 0) {
+        list.innerHTML = '<p style="color: #999; font-size: 0.9rem;">No active trades</p>';
+        return;
+      }
+
+      list.innerHTML = '';
+
+      gameState.tradeProposals.forEach(proposal => {
+        const proposer = gameState.players.find(p => p.id === proposal.proposerId);
+        const isProposer = proposal.proposerId === currentPlayer.id;
+        const canAccept = !isProposer && proposal.status === 'pending' &&
+          (!proposal.targetId || proposal.targetId === currentPlayer.id);
+
+        const div = document.createElement('div');
+        div.className = 'trade-proposal' + (proposal.status === 'accepted' ? ' active' : '');
+
+        // Format resources for display
+        const formatResources = (offer) => {
+          const current = Object.entries(offer.current)
+            .filter(([res, amt]) => res !== 'desert' && amt > 0)
+            .map(([res, amt]) => `${amt} ${res}`)
+            .join(', ');
+
+          const futures = offer.futures ? Object.entries(offer.futures)
+            .filter(([res, amt]) => res !== 'desert' && amt > 0)
+            .map(([res, amt]) => `${amt} ${res} (next)`)
+            .join(', ') : '';
+
+          return [current, futures].filter(s => s).join(', ') || 'none';
+        };
+
+        const offeringStr = formatResources(proposal.offering);
+        const requestingStr = formatResources(proposal.requesting);
+
+        let actionsHTML = '';
+
+        if (isProposer) {
+          actionsHTML = `<button class="btn-cancel" onclick="cancelTrade('${proposal.id}')">Cancel</button>`;
+        } else if (canAccept) {
+          actionsHTML = `
+            <button class="btn-accept" onclick="acceptTrade('${proposal.id}')">Accept</button>
+            <button class="btn-decline" onclick="declineTrade('${proposal.id}')">Decline</button>
+            <button class="btn-counter" onclick="counterTrade('${proposal.id}')">Counter</button>
+          `;
+        }
+
+        // If accepted and current player can execute
+        const canExecute = proposal.status === 'accepted' &&
+          (proposal.proposerId === currentPlayer.id ||
+           proposal.acceptedBy.includes(currentPlayer.id));
+
+        if (canExecute) {
+          actionsHTML += `<button class="btn-execute" onclick="executeTrade('${proposal.id}')">Execute Trade</button>`;
+        }
+
+        div.innerHTML = `
+          <div class="trade-proposal-header">
+            ${proposer.name} proposes ${proposal.targetId ?
+              'to ' + gameState.players.find(p => p.id === proposal.targetId).name :
+              'to anyone'}
+          </div>
+          <div class="trade-details">
+            <div class="trade-offer">
+              <strong>Offers:</strong><br>${offeringStr}
+            </div>
+            <div class="trade-arrow">⇄</div>
+            <div class="trade-request">
+              <strong>Wants:</strong><br>${requestingStr}
+            </div>
+          </div>
+          <div style="font-size: 0.85rem; color: #666; margin-bottom: 8px;">
+            Status: ${proposal.status}
+            ${proposal.acceptedBy.length > 0 ? ` | Accepted by: ${proposal.acceptedBy.map(id => gameState.players.find(p => p.id === id)?.name).join(', ')}` : ''}
+          </div>
+          <div class="trade-actions">
+            ${actionsHTML}
+          </div>
+        `;
+
+        list.appendChild(div);
+      });
+    }
+
+    // Trade action functions (global scope for onclick handlers)
+    window.acceptTrade = function(tradeId) {
+      const currentPlayer = Game.getCurrentPlayer(gameState);
+      try {
+        const action = {
+          type: 'acceptTradeProposal',
+          playerId: currentPlayer.id,
+          payload: { tradeId }
+        };
+        gameState = Game.applyAction(gameState, action);
+        updateUI();
+        updateTradesList();
+      } catch (error) {
+        alert('Error accepting trade: ' + error.message);
+      }
+    };
+
+    window.declineTrade = function(tradeId) {
+      const currentPlayer = Game.getCurrentPlayer(gameState);
+      try {
+        const action = {
+          type: 'declineTradeProposal',
+          playerId: currentPlayer.id,
+          payload: { tradeId }
+        };
+        gameState = Game.applyAction(gameState, action);
+        updateUI();
+        updateTradesList();
+      } catch (error) {
+        alert('Error declining trade: ' + error.message);
+      }
+    };
+
+    window.cancelTrade = function(tradeId) {
+      const currentPlayer = Game.getCurrentPlayer(gameState);
+      try {
+        const action = {
+          type: 'cancelTradeProposal',
+          playerId: currentPlayer.id,
+          payload: { tradeId }
+        };
+        gameState = Game.applyAction(gameState, action);
+        updateUI();
+        updateTradesList();
+      } catch (error) {
+        alert('Error canceling trade: ' + error.message);
+      }
+    };
+
+    window.executeTrade = function(tradeId) {
+      try {
+        const action = {
+          type: 'executeTrade',
+          playerId: Game.getCurrentPlayer(gameState).id,
+          payload: { tradeId }
+        };
+        gameState = Game.applyAction(gameState, action);
+        updateUI();
+        updateTradesList();
+      } catch (error) {
+        alert('Error executing trade: ' + error.message);
+      }
+    };
+
+    window.counterTrade = function(originalTradeId) {
+      alert('Counter-offer feature: Opening trade modal with swapped values');
+      // This would open the modal with pre-filled swapped values
+      // For simplicity, just opening regular modal for now
+      openTradeModal();
+    };
+
+    // Initialize trade UI when updateUI is called
+    const originalUpdateUI = updateUI;
+    updateUI = function() {
+      originalUpdateUI();
+      updateTradesList();
+      setupTradeUI();
+    };
+
   </script>
 </body>
 </html>

@@ -4,6 +4,7 @@ import { generateMap } from '../map/index.js';
 import { generateId, SeededRandom } from './utils.js';
 import { getAdjacentNodes } from '../map/validator.js';
 import { purchaseMilitaryKnight, placeWagon, repositionWagon, buildFleet, moveMilitaryKnight, moveFleet, loadKnightOntoFleet, unloadKnightFromFleet, updateCaptureProgress, collectMaintenanceCosts, resetMovementFlags } from './military.js';
+import { validateCreateTradeProposal, createTradeProposal, validateAcceptTradeProposal, acceptTradeProposal, declineTradeProposal, cancelTradeProposal, validateExecuteTrade, executeTrade, createCounterOffer } from './trade.js';
 export function createGame(playerNames, options) {
     if (playerNames.length < 2 || playerNames.length > 6) {
         throw new Error('Game requires 2-6 players');
@@ -74,7 +75,8 @@ export function createGame(playerNames, options) {
             wagons: [],
             fleets: [],
             captureProgress: []
-        } : {})
+        } : {}),
+        tradeProposals: []
     };
     return gameState;
 }
@@ -112,6 +114,12 @@ export function validateAction(state, action) {
             return validateUpgradeToCity(state, player, action.payload.nodeId);
         case 'buyDevelopmentCard':
             return validateBuyDevelopmentCard(state, player);
+        case 'createTradeProposal':
+            return validateCreateTradeProposal(state, action.playerId, action.payload.targetId, action.payload.offering, action.payload.requesting);
+        case 'acceptTradeProposal':
+            return validateAcceptTradeProposal(state, action.payload.tradeId, action.playerId);
+        case 'executeTrade':
+            return validateExecuteTrade(state, action.payload.tradeId);
         default:
             return { ok: false, reason: 'Unknown action type' };
     }
@@ -347,6 +355,25 @@ export function applyAction(state, action) {
             if (!result.ok)
                 throw new Error(result.reason);
             break;
+        }
+        // Trade proposal actions
+        case 'createTradeProposal': {
+            return createTradeProposal(newState, action.playerId, action.payload.targetId, action.payload.offering, action.payload.requesting);
+        }
+        case 'acceptTradeProposal': {
+            return acceptTradeProposal(newState, action.payload.tradeId, action.playerId);
+        }
+        case 'declineTradeProposal': {
+            return declineTradeProposal(newState, action.payload.tradeId, action.playerId);
+        }
+        case 'cancelTradeProposal': {
+            return cancelTradeProposal(newState, action.payload.tradeId, action.playerId);
+        }
+        case 'executeTrade': {
+            return executeTrade(newState, action.payload.tradeId, action.payload.acceptorId);
+        }
+        case 'createCounterOffer': {
+            return createCounterOffer(newState, action.payload.originalTradeId, action.playerId, action.payload.offering, action.payload.requesting);
         }
     }
     return newState;
