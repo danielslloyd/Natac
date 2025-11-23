@@ -240,6 +240,47 @@
       margin-bottom: 20px;
     }
 
+    /* ============================================================================
+       TEMPORARY DEBUG STYLES FOR WINDING ORDER
+       TODO: Remove after identifying correct winding method
+       ============================================================================ */
+    .winding-debug-legend {
+      background: #f0f0f0;
+      border: 2px solid #333;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 20px;
+      font-family: monospace;
+    }
+
+    .winding-debug-legend h3 {
+      margin: 0 0 10px 0;
+      color: #333;
+      font-size: 1.1rem;
+    }
+
+    .winding-method {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .winding-color-box {
+      width: 30px;
+      height: 30px;
+      border: 2px solid #333;
+      border-radius: 4px;
+    }
+
+    .winding-method-name {
+      font-weight: bold;
+      flex: 1;
+    }
+    /* ============================================================================
+       END TEMPORARY DEBUG STYLES
+       ============================================================================ */
+
     .resource-display {
       display: flex;
       gap: 15px;
@@ -316,6 +357,37 @@
     </div>
 
     <div id="gameScreen" class="game-screen">
+      <!-- ============================================================================
+           TEMPORARY DEBUG LEGEND FOR WINDING ORDER
+           TODO: Remove after identifying correct winding method
+           ============================================================================ -->
+      <div class="winding-debug-legend">
+        <h3>🔬 Winding Order Debug Mode</h3>
+        <p style="margin-bottom: 10px; font-size: 0.9rem;">Each tile uses a random winding method. Colors indicate which method:</p>
+        <div class="winding-method">
+          <div class="winding-color-box" style="background: #FF6B6B;"></div>
+          <div class="winding-method-name">Method 0: Original Unsorted (BROKEN)</div>
+        </div>
+        <div class="winding-method">
+          <div class="winding-color-box" style="background: #4ECDC4;"></div>
+          <div class="winding-method-name">Method 1: Atan2 Sorted (matching nodes)</div>
+        </div>
+        <div class="winding-method">
+          <div class="winding-color-box" style="background: #95E1D3;"></div>
+          <div class="winding-method-name">Method 2: Signed Area Corrected</div>
+        </div>
+        <div class="winding-method">
+          <div class="winding-color-box" style="background: #F9CA24;"></div>
+          <div class="winding-method-name">Method 3: Convex Hull Based</div>
+        </div>
+        <p style="margin-top: 10px; font-size: 0.85rem; color: #666;">
+          Look for polygons that render correctly vs incorrectly to identify which method(s) work!
+        </p>
+      </div>
+      <!-- ============================================================================
+           END TEMPORARY DEBUG LEGEND
+           ============================================================================ -->
+
       <div class="game-layout">
         <div class="sidebar">
           <h2 style="margin-bottom: 15px;">Players</h2>
@@ -637,16 +709,36 @@
         }
         ctx.closePath();
 
-        // Fill based on resource
-        const colors = {
-          wood: '#228B22',
-          brick: '#A0522D',
-          sheep: '#90EE90',
-          wheat: '#FFD700',
-          ore: '#708090',
-          desert: '#DEB887'
-        };
-        ctx.fillStyle = colors[tile.resource] || '#ccc';
+        // ============================================================================
+        // TEMPORARY DEBUG: Use winding debug colors if available
+        // TODO: Remove after identifying correct winding method
+        // ============================================================================
+        let debugColor = null;
+        if (window.windingDebugInfo && window.windingDebugInfo.methods) {
+          const debugInfo = window.windingDebugInfo.methods.find(m => m.tileId === tile.id);
+          if (debugInfo) {
+            debugColor = debugInfo.color;
+          }
+        }
+
+        if (debugColor) {
+          // Use debug color to identify winding method
+          ctx.fillStyle = debugColor;
+        } else {
+          // Fill based on resource (normal mode)
+          const colors = {
+            wood: '#228B22',
+            brick: '#A0522D',
+            sheep: '#90EE90',
+            wheat: '#FFD700',
+            ore: '#708090',
+            desert: '#DEB887'
+          };
+          ctx.fillStyle = colors[tile.resource] || '#ccc';
+        }
+        // ============================================================================
+        // END TEMPORARY DEBUG
+        // ============================================================================
         ctx.fill();
 
         ctx.strokeStyle = '#333';
