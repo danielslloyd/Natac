@@ -5,146 +5,6 @@ import type { MapData, Tile, Node, Edge } from '../models/types.js';
 import { TileShape, Resource } from '../models/types.js';
 import { generateId, SeededRandom } from '../core/utils.js';
 
-// ============================================================================
-// TEMPORARY DEBUG CODE FOR WINDING ORDER
-// TODO: Remove after identifying correct winding method
-// ============================================================================
-
-// Debug: Track which method is used for each tile
-const WINDING_DEBUG_COLORS = [
-  '#FF6B6B', // Method 0: Original unsorted (RED)
-  '#4ECDC4', // Method 1: Atan2 sorted matching nodes (CYAN)
-  '#95E1D3', // Method 2: Signed area corrected (MINT)
-  '#F9CA24'  // Method 3: Convex hull based (YELLOW)
-];
-
-type WindingMethod = 0 | 1 | 2 | 3;
-
-// Method 0: Original unsorted blueNodes (CURRENT BROKEN METHOD)
-function method0_unsorted(
-  blueNodes: number[],
-  vizData: any
-): [number, number][] {
-  return blueNodes.map(vizNodeId => {
-    const node = vizData.blueNodes.find((n: any) => n.id === vizNodeId);
-    return node ? node.position : [0, 0];
-  });
-}
-
-// Method 1: Atan2 sorted to match sortedNodeIds
-function method1_atan2Sorted(
-  blueNodes: number[],
-  tilePos: [number, number],
-  vizData: any
-): [number, number][] {
-  const sortedNodes = blueNodes
-    .map(vizNodeId => {
-      const node = vizData.blueNodes.find((n: any) => n.id === vizNodeId);
-      if (!node) return null;
-      const dx = node.position[0] - tilePos[0];
-      const dy = node.position[1] - tilePos[1];
-      const angle = Math.atan2(dy, dx);
-      return { vizNodeId, position: node.position, angle };
-    })
-    .filter((n): n is NonNullable<typeof n> => n !== null)
-    .sort((a, b) => a.angle - b.angle);
-
-  return sortedNodes.map(n => n.position);
-}
-
-// Method 2: Signed area corrected
-function method2_signedArea(
-  blueNodes: number[],
-  tilePos: [number, number],
-  vizData: any
-): [number, number][] {
-  // First get atan2 sorted
-  const sorted = method1_atan2Sorted(blueNodes, tilePos, vizData);
-
-  // Calculate signed area
-  let signedArea = 0;
-  for (let i = 0; i < sorted.length; i++) {
-    const j = (i + 1) % sorted.length;
-    signedArea += sorted[i][0] * sorted[j][1] - sorted[j][0] * sorted[i][1];
-  }
-
-  // If negative (clockwise), reverse to make counter-clockwise
-  if (signedArea < 0) {
-    return sorted.reverse();
-  }
-  return sorted;
-}
-
-// Method 3: Convex hull based
-function method3_convexHull(
-  blueNodes: number[],
-  tilePos: [number, number],
-  vizData: any
-): [number, number][] {
-  const points = blueNodes.map(vizNodeId => {
-    const node = vizData.blueNodes.find((n: any) => n.id === vizNodeId);
-    return node ? node.position : tilePos;
-  });
-
-  if (points.length < 3) return points;
-
-  // Find leftmost point
-  let leftmost = 0;
-  for (let i = 1; i < points.length; i++) {
-    if (points[i][0] < points[leftmost][0] ||
-        (points[i][0] === points[leftmost][0] && points[i][1] < points[leftmost][1])) {
-      leftmost = i;
-    }
-  }
-
-  // Sort by polar angle from leftmost point
-  const sortedPoints = [...points];
-  const pivot = sortedPoints[leftmost];
-
-  sortedPoints.sort((a, b) => {
-    if (a === pivot) return -1;
-    if (b === pivot) return 1;
-
-    const angleA = Math.atan2(a[1] - pivot[1], a[0] - pivot[0]);
-    const angleB = Math.atan2(b[1] - pivot[1], b[0] - pivot[0]);
-
-    if (Math.abs(angleA - angleB) < 1e-10) {
-      // Same angle, sort by distance
-      const distA = Math.hypot(a[0] - pivot[0], a[1] - pivot[1]);
-      const distB = Math.hypot(b[0] - pivot[0], b[1] - pivot[1]);
-      return distA - distB;
-    }
-
-    return angleA - angleB;
-  });
-
-  return sortedPoints;
-}
-
-// Apply the selected winding method
-function applyWindingMethod(
-  method: WindingMethod,
-  blueNodes: number[],
-  tilePos: [number, number],
-  vizData: any
-): [number, number][] {
-  switch (method) {
-    case 0: return method0_unsorted(blueNodes, vizData);
-    case 1: return method1_atan2Sorted(blueNodes, tilePos, vizData);
-    case 2: return method2_signedArea(blueNodes, tilePos, vizData);
-    case 3: return method3_convexHull(blueNodes, tilePos, vizData);
-  }
-}
-
-// Store debug info globally for visualization
-(window as any).windingDebugInfo = {
-  methods: [] as Array<{ tileId: string; method: WindingMethod; color: string }>
-};
-
-// ============================================================================
-// END TEMPORARY DEBUG CODE
-// ============================================================================
-
 // Declare window.generateMapData from mapgen.js
 declare global {
   interface Window {
@@ -236,9 +96,10 @@ function convertVizDataToMapData(
       const tileId = generateId('tile');
       tileIdMap.set(tileData.id, tileId);
 
-      // Get blue nodes for this tile (already computed in visualization)
+      // Get blue nodes for this tile, sorted by angle from tile center
+      // for consistent counter-clockwise polygon winding order
       const tilePos = tileData.position;
-      const sortedNodeIds = tileData.blueNodes
+      const sortedNodes = tileData.blueNodes
         .map(blueNodeIdx => {
           const nodeId = nodeIdMap.get(blueNodeIdx);
           const blueNode = vizData.blueNodes.find(n => n.id === blueNodeIdx);
@@ -247,39 +108,16 @@ function convertVizDataToMapData(
           const dx = blueNode.position[0] - tilePos[0];
           const dy = blueNode.position[1] - tilePos[1];
           const angle = Math.atan2(dy, dx);
-          return { id: nodeId, angle };
+          return { id: nodeId, angle, position: blueNode.position as [number, number] };
         })
-        .filter((n): n is { id: string; angle: number } => n !== null)
-        .sort((a, b) => a.angle - b.angle)
-        .map(n => n.id);
+        .filter((n): n is NonNullable<typeof n> => n !== null)
+        .sort((a, b) => a.angle - b.angle);
+
+      const sortedNodeIds = sortedNodes.map(n => n.id);
+      const polygonPoints = sortedNodes.map(n => n.position);
 
       // Determine shape based on number of nodes
       const shape = sortedNodeIds.length as TileShape;
-
-      // ============================================================================
-      // TEMPORARY DEBUG: Randomly assign winding method and color code
-      // TODO: Remove after identifying correct method
-      // ============================================================================
-      const windingMethod: WindingMethod = Math.floor(Math.random() * 4) as WindingMethod;
-      const debugColor = WINDING_DEBUG_COLORS[windingMethod];
-
-      // Apply the selected winding method
-      const polygonPoints = applyWindingMethod(
-        windingMethod,
-        tileData.blueNodes,
-        tilePos,
-        vizData
-      );
-
-      // Store debug info for visualization
-      (window as any).windingDebugInfo.methods.push({
-        tileId,
-        method: windingMethod,
-        color: debugColor
-      });
-      // ============================================================================
-      // END TEMPORARY DEBUG
-      // ============================================================================
 
       return {
         id: tileId,
