@@ -96,21 +96,26 @@ function convertVizDataToMapData(
       const tileId = generateId('tile');
       tileIdMap.set(tileData.id, tileId);
 
-      // Get blue nodes for this tile, sorted by angle from tile center
-      // for consistent counter-clockwise polygon winding order
-      const tilePos = tileData.position;
-      const sortedNodes = tileData.blueNodes
+      // Get blue nodes for this tile, sorted by angle from the nodes' centroid
+      // for consistent counter-clockwise polygon winding order.
+      // Using the centroid of the nodes themselves (not tileData.position) because
+      // the seed point can end up outside the polygon after bounds-clamping during
+      // Lloyd's relaxation, which causes atan2 sort to produce self-intersecting polygons.
+      const nodeEntries = tileData.blueNodes
         .map(blueNodeIdx => {
           const nodeId = nodeIdMap.get(blueNodeIdx);
           const blueNode = vizData.blueNodes.find(n => n.id === blueNodeIdx);
           if (!nodeId || !blueNode) return null;
-
-          const dx = blueNode.position[0] - tilePos[0];
-          const dy = blueNode.position[1] - tilePos[1];
-          const angle = Math.atan2(dy, dx);
-          return { id: nodeId, angle, position: blueNode.position as [number, number] };
+          return { id: nodeId, position: blueNode.position as [number, number] };
         })
-        .filter((n): n is NonNullable<typeof n> => n !== null)
+        .filter((n): n is NonNullable<typeof n> => n !== null);
+
+      // Centroid of the nodes is always a reliable interior reference point
+      const cx = nodeEntries.reduce((s, n) => s + n.position[0], 0) / nodeEntries.length;
+      const cy = nodeEntries.reduce((s, n) => s + n.position[1], 0) / nodeEntries.length;
+
+      const sortedNodes = nodeEntries
+        .map(n => ({ ...n, angle: Math.atan2(n.position[1] - cy, n.position[0] - cx) }))
         .sort((a, b) => a.angle - b.angle);
 
       const sortedNodeIds = sortedNodes.map(n => n.id);
