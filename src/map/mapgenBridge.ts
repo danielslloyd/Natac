@@ -54,6 +54,53 @@ export function generateMapFromVisualization(
   return convertVizDataToMapData(vizData, seed);
 }
 
+// Walk the adjacency graph formed by greenEdges to produce boundary order.
+// Each tile's greenEdges connect adjacent blue nodes (triangle centroids)
+// that both belong to the tile, forming the polygon boundary as a cycle/path.
+function orderByTopology(
+  blueNodeIds: number[],
+  greenEdges: Array<[number, number]>
+): number[] {
+  if (blueNodeIds.length <= 2) return blueNodeIds;
+
+  const nodeSet = new Set(blueNodeIds);
+
+  // Build adjacency list from green edges within this tile
+  const adj = new Map<number, number[]>();
+  for (const id of blueNodeIds) {
+    adj.set(id, []);
+  }
+  for (const [a, b] of greenEdges) {
+    if (nodeSet.has(a) && nodeSet.has(b)) {
+      adj.get(a)!.push(b);
+      adj.get(b)!.push(a);
+    }
+  }
+
+  // Walk the boundary starting from the first node
+  const ordered: number[] = [];
+  const visited = new Set<number>();
+  let current = blueNodeIds[0];
+
+  while (ordered.length < blueNodeIds.length) {
+    ordered.push(current);
+    visited.add(current);
+    const neighbors = adj.get(current) || [];
+    const next = neighbors.find(n => !visited.has(n));
+    if (next === undefined) break;
+    current = next;
+  }
+
+  // If topology walk didn't cover all nodes (disconnected graph from
+  // boundary filtering), fall back to atan2 sort for remaining nodes
+  if (ordered.length < blueNodeIds.length) {
+    const missing = blueNodeIds.filter(id => !visited.has(id));
+    ordered.push(...missing);
+  }
+
+  return ordered;
+}
+
 function convertVizDataToMapData(
   vizData: {
     tiles: Array<{
@@ -96,30 +143,28 @@ function convertVizDataToMapData(
       const tileId = generateId('tile');
       tileIdMap.set(tileData.id, tileId);
 
-      // Get blue nodes for this tile, sorted by angle from the nodes' centroid
-      // for consistent counter-clockwise polygon winding order.
-      // Using the centroid of the nodes themselves (not tileData.position) because
-      // the seed point can end up outside the polygon after bounds-clamping during
-      // Lloyd's relaxation, which causes atan2 sort to produce self-intersecting polygons.
-      const nodeEntries = tileData.blueNodes
-        .map(blueNodeIdx => {
-          const nodeId = nodeIdMap.get(blueNodeIdx);
-          const blueNode = vizData.blueNodes.find(n => n.id === blueNodeIdx);
-          if (!nodeId || !blueNode) return null;
-          return { id: nodeId, position: blueNode.position as [number, number] };
-        })
-        .filter((n): n is NonNullable<typeof n> => n !== null);
+      // Build a lookup from viz blue node index to game node id + position
+      const nodeEntries = new Map<number, { id: string; position: [number, number] }>();
+      for (const blueNodeIdx of tileData.blueNodes) {
+        const nodeId = nodeIdMap.get(blueNodeIdx);
+        const blueNode = vizData.blueNodes.find(n => n.id === blueNodeIdx);
+        if (nodeId && blueNode) {
+          nodeEntries.set(blueNodeIdx, { id: nodeId, position: blueNode.position as [number, number] });
+        }
+      }
 
-      // Centroid of the nodes is always a reliable interior reference point
-      const cx = nodeEntries.reduce((s, n) => s + n.position[0], 0) / nodeEntries.length;
-      const cy = nodeEntries.reduce((s, n) => s + n.position[1], 0) / nodeEntries.length;
+      // Order nodes by walking the boundary topology (greenEdges), not by
+      // geometric angle. Atan2 sort fails for non-convex cells, which occur
+      // because these Voronoi cells use triangle centroids, not circumcenters.
+      // The greenEdges connect adjacent blue nodes within the tile, forming
+      // the polygon boundary — walking that graph always gives the correct order.
+      const orderedVizIds = orderByTopology(
+        tileData.blueNodes.filter(id => nodeEntries.has(id)),
+        tileData.greenEdges
+      );
 
-      const sortedNodes = nodeEntries
-        .map(n => ({ ...n, angle: Math.atan2(n.position[1] - cy, n.position[0] - cx) }))
-        .sort((a, b) => a.angle - b.angle);
-
-      const sortedNodeIds = sortedNodes.map(n => n.id);
-      const polygonPoints = sortedNodes.map(n => n.position);
+      const sortedNodeIds = orderedVizIds.map(vizId => nodeEntries.get(vizId)!.id);
+      const polygonPoints = orderedVizIds.map(vizId => nodeEntries.get(vizId)!.position);
 
       // Determine shape based on number of nodes
       const shape = sortedNodeIds.length as TileShape;
