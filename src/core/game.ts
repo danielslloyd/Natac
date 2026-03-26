@@ -181,6 +181,9 @@ export function validateAction(state: GameState, action: Action): ActionResult {
     case 'executeTrade':
       return validateExecuteTrade(state, action.payload.tradeId);
 
+    case 'endTurn':
+      return { ok: true };
+
     default:
       return { ok: false, reason: 'Unknown action type' };
   }
