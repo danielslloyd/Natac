@@ -77,10 +77,20 @@ function orderByTopology(
     }
   }
 
-  // Walk the boundary starting from the first node
+  // For boundary tiles some triangles are invalid, making the graph a PATH
+  // instead of a CYCLE. Starting the walk from a mid-path node would only
+  // traverse one direction, then the fallback appends remaining nodes out of
+  // position — producing a self-intersecting polygon. Always start from a
+  // degree-1 endpoint (one neighbor) so the walk covers the whole path in
+  // order. For a complete cycle every node has degree 2; any start is fine.
+  const start =
+    blueNodeIds.find(id => (adj.get(id)?.length ?? 0) === 1) ??
+    blueNodeIds[0];
+
+  // Walk the boundary
   const ordered: number[] = [];
   const visited = new Set<number>();
-  let current = blueNodeIds[0];
+  let current = start;
 
   while (ordered.length < blueNodeIds.length) {
     ordered.push(current);
@@ -91,8 +101,8 @@ function orderByTopology(
     current = next;
   }
 
-  // If topology walk didn't cover all nodes (disconnected graph from
-  // boundary filtering), fall back to atan2 sort for remaining nodes
+  // Append any nodes unreachable from start (disconnected components due to
+  // multiple missing triangles); these are rare edge cases on map boundaries.
   if (ordered.length < blueNodeIds.length) {
     const missing = blueNodeIds.filter(id => !visited.has(id));
     ordered.push(...missing);
