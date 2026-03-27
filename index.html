@@ -601,20 +601,15 @@
         <div class="player-setup">
           <div class="player-inputs">
             <div class="player-input">
-              <label>Player 1</label>
-              <input type="text" id="player1" value="Alice" />
+              <label>Your Name (Player 1)</label>
+              <input type="text" id="player1" value="You" />
             </div>
             <div class="player-input">
-              <label>Player 2</label>
-              <input type="text" id="player2" value="Bob" />
+              <label>Number of Players (2-6)</label>
+              <input type="number" id="playerCount" min="2" max="6" value="4" />
             </div>
             <div class="player-input">
-              <label>Player 3</label>
-              <input type="text" id="player3" value="Charlie" />
-            </div>
-            <div class="player-input">
-              <label>Player 4 (Optional)</label>
-              <input type="text" id="player4" placeholder="Optional" />
+              <label style="font-size: 0.9rem; color: #666;">Other players will be controlled by AI</label>
             </div>
           </div>
         </div>
@@ -840,17 +835,15 @@
     document.getElementById('startGameBtn').addEventListener('click', startGame);
 
     function startGame() {
-      const playerNames = [
-        document.getElementById('player1').value,
-        document.getElementById('player2').value,
-        document.getElementById('player3').value,
-        document.getElementById('player4').value
-      ].filter(name => name.trim() !== '');
+      const humanPlayerName = document.getElementById('player1').value.trim() || 'You';
+      const playerCountInput = parseInt(document.getElementById('playerCount').value) || 4;
+      const playerCount = Math.max(2, Math.min(6, playerCountInput));
 
-      if (playerNames.length < 2) {
-        alert('Please enter at least 2 player names');
-        return;
-      }
+      const aiNames = ['Alice', 'Bob', 'Charlie', 'Diana', 'Eve'];
+      const playerNames = [humanPlayerName, ...aiNames.slice(0, playerCount - 1)];
+
+      // Track which players are AI
+      const aiPlayerIndices = new Set(Array.from({length: playerCount - 1}, (_, i) => i + 1));
 
       // Get tile count from input (for non-standard maps)
       let tileCount = 30; // default
@@ -870,7 +863,8 @@
 
       try {
         gameState = Game.createGame(playerNames, options);
-        console.log('Game created:', gameState);
+        gameState.aiPlayerIndices = aiPlayerIndices;
+        console.log('Game created:', gameState, 'AI players:', Array.from(aiPlayerIndices));
 
         document.getElementById('setupScreen').style.display = 'none';
         document.getElementById('gameScreen').style.display = 'block';
@@ -878,6 +872,9 @@
         initializeCanvas();
         updateUI();
         renderMap();
+
+        // Start AI turn if needed
+        scheduleAITurn();
       } catch (error) {
         alert('Error creating game: ' + error.message);
         console.error(error);
@@ -1554,6 +1551,78 @@
       renderMap();
     }
 
+    function scheduleAITurn() {
+      if (!gameState.aiPlayerIndices || !gameState.aiPlayerIndices.has(gameState.currentPlayerIdx)) {
+        return; // Not an AI player's turn
+      }
+      setTimeout(executeAITurn, 800);
+    }
+
+    function executeAITurn() {
+      const currentPlayer = Game.getCurrentPlayer(gameState);
+      if (!gameState.aiPlayerIndices.has(gameState.currentPlayerIdx)) return;
+
+      // In setup phase: place settlement and road
+      if (gameState.phase === 'setup') {
+        // Try to place a settlement
+        const validNodes = gameState.nodes.filter(n => {
+          const validation = Game.validateAction(gameState, {
+            type: 'placeSettlement',
+            playerId: currentPlayer.id,
+            payload: { nodeId: n.id }
+          });
+          return validation.ok;
+        });
+
+        if (validNodes.length > 0 && !gameState.setupPhase.playerSettlementThisTurn) {
+          const node = validNodes[Math.floor(Math.random() * validNodes.length)];
+          gameState = Game.applyAction(gameState, {
+            type: 'placeSettlement',
+            playerId: currentPlayer.id,
+            payload: { nodeId: node.id }
+          });
+          updateUI();
+          renderMap();
+          return;
+        }
+
+        // Try to place a road
+        const validEdges = gameState.edges.filter(e => {
+          const validation = Game.validateAction(gameState, {
+            type: 'placeRoad',
+            playerId: currentPlayer.id,
+            payload: { edgeId: e.id }
+          });
+          return validation.ok;
+        });
+
+        if (validEdges.length > 0 && gameState.setupPhase.playerSettlementThisTurn && !gameState.setupPhase.playerRoadThisTurn) {
+          const edge = validEdges[Math.floor(Math.random() * validEdges.length)];
+          gameState = Game.applyAction(gameState, {
+            type: 'placeRoad',
+            playerId: currentPlayer.id,
+            payload: { edgeId: edge.id }
+          });
+          updateUI();
+          renderMap();
+          return;
+        }
+
+        // End turn if both placed
+        if (gameState.setupPhase.playerSettlementThisTurn && gameState.setupPhase.playerRoadThisTurn) {
+          handleEndTurn();
+        }
+      }
+      // In main phase: just end turn (or could add trading logic later)
+      else {
+        // Random chance to propose trade
+        if (Math.random() < 0.3) {
+          // AI proposes random trade (simplified)
+        }
+        setTimeout(handleEndTurn, 500);
+      }
+    }
+
     function handleEndTurn() {
       const action = {
         type: 'endTurn',
@@ -1581,7 +1650,11 @@
 
           updateUI();
           renderMap();
+          scheduleAITurn();
         }, 500);
+      } else {
+        // Setup phase: continue with next player
+        scheduleAITurn();
       }
     }
 
@@ -1836,6 +1909,15 @@
           payload: { tradeId }
         };
         gameState = Game.applyAction(gameState, action);
+
+        // Check if trade is now accepted by all and auto-execute
+        const trade = gameState.tradeProposals.find(t => t.id === tradeId);
+        if (trade && trade.status === 'accepted') {
+          setTimeout(() => {
+            window.executeTrade(tradeId);
+          }, 300);
+        }
+
         updateUI();
         updateTradesList();
       } catch (error) {
