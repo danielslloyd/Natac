@@ -640,6 +640,17 @@
             <button id="proposeTradeBtn">Propose Trade</button>
           </div>
 
+          <div id="gameSettings" style="margin-top: 15px; padding: 10px; background: #f0f0f0; border-radius: 6px; font-size: 0.85rem;">
+            <div style="margin-bottom: 8px;">
+              <label>Handle Size: <span id="handleSizeValue">8</span>px</label>
+              <input type="range" id="handleSizeSlider" min="4" max="16" value="8" style="width: 100%; margin: 4px 0;">
+            </div>
+            <div>
+              <label>Edge Highlight: <span id="edgeThresholdValue">10</span>%</label>
+              <input type="range" id="edgeThresholdSlider" min="0" max="50" value="10" style="width: 100%; margin: 4px 0;">
+            </div>
+          </div>
+
           <div id="diceResult" style="margin-top: 15px; font-size: 1.2rem; font-weight: bold;"></div>
 
           <div class="trade-proposals-section">
@@ -796,6 +807,8 @@
     let gameState = null;
     let selectedMapType = 'standard';
     let canvas, ctx;
+    let handleSize = 8; // pixels
+    let edgeHighlightThreshold = 0.10; // 10% closer to edge midpoint triggers highlight
 
     // View state for zoom and pan
     let viewState = {
@@ -888,9 +901,6 @@
 
       // Update map info
       document.getElementById('mapTypeDisplay').textContent = selectedMapType;
-      document.getElementById('tileCount').textContent = gameState.tiles.length;
-      document.getElementById('nodeCount').textContent = gameState.nodes.length;
-      document.getElementById('edgeCount').textContent = gameState.edges.length;
     }
 
     function calculateMapBounds() {
@@ -974,20 +984,33 @@
       if (isPanning) return;
       const rect = canvas.getBoundingClientRect();
       const [wx, wy] = screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
-      const hitRadius = 8 / viewState.zoom;
+      const hitRadius = handleSize / viewState.zoom;
 
-      const hovTile = gameState.tiles.find(t => t.polygonPoints?.length && pointInPolygon([wx, wy], t.polygonPoints));
       const hovNode = gameState.nodes.find(n => n.location &&
         Math.hypot(wx - n.location[0], wy - n.location[1]) < hitRadius);
-      const hovEdge = !hovNode && gameState.edges.find(e => {
-        const a = gameState.nodes.find(n => n.id === e.nodeA);
-        const b = gameState.nodes.find(n => n.id === e.nodeB);
-        if (!a?.location || !b?.location) return false;
-        return pointToSegmentDistance([wx, wy], a.location, b.location) < hitRadius;
-      });
 
-      const next = { tileId: hovTile?.id ?? null, nodeId: hovNode?.id ?? null, edgeId: hovEdge?.id ?? null };
-      if (next.tileId !== hoverState.tileId || next.nodeId !== hoverState.nodeId || next.edgeId !== hoverState.edgeId) {
+      // For edges: only highlight if closer to edge midpoint than to nearest node (with threshold)
+      let hovEdge = null;
+      if (!hovNode) {
+        hovEdge = gameState.edges.find(e => {
+          const a = gameState.nodes.find(n => n.id === e.nodeA);
+          const b = gameState.nodes.find(n => n.id === e.nodeB);
+          if (!a?.location || !b?.location) return false;
+          const distToEdge = pointToSegmentDistance([wx, wy], a.location, b.location);
+          if (distToEdge > hitRadius) return false;
+
+          // Check if closer to edge than to nodes (with threshold)
+          const distToA = Math.hypot(wx - a.location[0], wy - a.location[1]);
+          const distToB = Math.hypot(wx - b.location[0], wy - b.location[1]);
+          const distToNearest = Math.min(distToA, distToB);
+
+          // Highlight only if: distToEdge <= distToNearest * (1 - threshold)
+          return distToEdge <= distToNearest * (1 - edgeHighlightThreshold);
+        });
+      }
+
+      const next = { tileId: null, nodeId: hovNode?.id ?? null, edgeId: hovEdge?.id ?? null };
+      if (next.nodeId !== hoverState.nodeId || next.edgeId !== hoverState.edgeId) {
         hoverState = next;
         canvas.style.cursor = (hovNode || hovEdge) ? 'pointer' : 'default';
         renderMap();
@@ -1098,6 +1121,24 @@
         rollBtn.onclick = handleRollDice;
       }
       document.getElementById('endTurnBtn').onclick = handleEndTurn;
+
+      // Setup slider listeners
+      const handleSizeSlider = document.getElementById('handleSizeSlider');
+      const edgeThresholdSlider = document.getElementById('edgeThresholdSlider');
+      if (handleSizeSlider) {
+        handleSizeSlider.oninput = (e) => {
+          handleSize = parseInt(e.target.value);
+          document.getElementById('handleSizeValue').textContent = handleSize;
+          renderMap();
+        };
+      }
+      if (edgeThresholdSlider) {
+        edgeThresholdSlider.oninput = (e) => {
+          edgeHighlightThreshold = parseInt(e.target.value) / 100;
+          document.getElementById('edgeThresholdValue').textContent = e.target.value;
+          renderMap();
+        };
+      }
     }
 
     function renderMap() {
@@ -1131,18 +1172,10 @@
         }
         ctx.closePath();
 
-        const isHovered = tile.id === hoverState.tileId;
         const baseColor = tileColors[tile.resource] || '#ccc';
-        ctx.fillStyle = isHovered ? baseColor + 'cc' : baseColor; // slight lightening via transparency
-        if (isHovered) {
-          ctx.save();
-          ctx.fillStyle = 'rgba(255,255,255,0.25)';
-          ctx.fill();
-          ctx.restore();
-          ctx.fillStyle = baseColor;
-        }
+        ctx.fillStyle = baseColor;
         ctx.fill();
-        ctx.strokeStyle = isHovered ? '#fff' : '#333';
+        ctx.strokeStyle = '#333';
         ctx.lineWidth = 2 * iz;
         ctx.stroke();
 
@@ -1202,8 +1235,8 @@
         ctx.stroke();
       });
 
-      // Draw nodes (settlements/cities) — constant 6px radius on screen
-      const nodeR = 6 * iz;
+      // Draw nodes (settlements/cities) — parameterized handle size
+      const nodeR = (handleSize / 2) * iz;
       gameState.nodes.forEach(node => {
         if (!node.location) return;
         const isHovered = node.id === hoverState.nodeId;
