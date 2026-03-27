@@ -168,28 +168,40 @@
     }
 
     .player-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      margin-bottom: 6px;
+      border-radius: 6px;
       background: white;
-      padding: 15px;
-      border-radius: 8px;
-      margin-bottom: 15px;
-      border-left: 4px solid #667eea;
+      font-size: 0.9rem;
     }
 
     .player-info.current {
-      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+      box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+      font-weight: bold;
     }
 
-    .player-info h3 {
-      margin-bottom: 10px;
-      color: #333;
+    .player-color-dot {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 2px solid #333;
+      flex-shrink: 0;
     }
 
-    .resource-list {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 5px;
-      font-size: 0.9rem;
+    .player-name {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .player-stats {
+      font-size: 0.8rem;
       color: #666;
+      white-space: nowrap;
     }
 
     .canvas-container {
@@ -239,47 +251,6 @@
       padding: 15px;
       margin-bottom: 20px;
     }
-
-    /* ============================================================================
-       TEMPORARY DEBUG STYLES FOR WINDING ORDER
-       TODO: Remove after identifying correct winding method
-       ============================================================================ */
-    .winding-debug-legend {
-      background: #f0f0f0;
-      border: 2px solid #333;
-      border-radius: 8px;
-      padding: 15px;
-      margin-bottom: 20px;
-      font-family: monospace;
-    }
-
-    .winding-debug-legend h3 {
-      margin: 0 0 10px 0;
-      color: #333;
-      font-size: 1.1rem;
-    }
-
-    .winding-method {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 8px;
-    }
-
-    .winding-color-box {
-      width: 30px;
-      height: 30px;
-      border: 2px solid #333;
-      border-radius: 4px;
-    }
-
-    .winding-method-name {
-      font-weight: bold;
-      flex: 1;
-    }
-    /* ============================================================================
-       END TEMPORARY DEBUG STYLES
-       ============================================================================ */
 
     .resource-display {
       display: flex;
@@ -626,37 +597,6 @@
     </div>
 
     <div id="gameScreen" class="game-screen">
-      <!-- ============================================================================
-           TEMPORARY DEBUG LEGEND FOR WINDING ORDER
-           TODO: Remove after identifying correct winding method
-           ============================================================================ -->
-      <div class="winding-debug-legend">
-        <h3>🔬 Winding Order Debug Mode</h3>
-        <p style="margin-bottom: 10px; font-size: 0.9rem;">Each tile uses a random winding method. Colors indicate which method:</p>
-        <div class="winding-method">
-          <div class="winding-color-box" style="background: #FF6B6B;"></div>
-          <div class="winding-method-name">Method 0: Original Unsorted (BROKEN)</div>
-        </div>
-        <div class="winding-method">
-          <div class="winding-color-box" style="background: #4ECDC4;"></div>
-          <div class="winding-method-name">Method 1: Atan2 Sorted (matching nodes)</div>
-        </div>
-        <div class="winding-method">
-          <div class="winding-color-box" style="background: #95E1D3;"></div>
-          <div class="winding-method-name">Method 2: Signed Area Corrected</div>
-        </div>
-        <div class="winding-method">
-          <div class="winding-color-box" style="background: #F9CA24;"></div>
-          <div class="winding-method-name">Method 3: Convex Hull Based</div>
-        </div>
-        <p style="margin-top: 10px; font-size: 0.85rem; color: #666;">
-          Look for polygons that render correctly vs incorrectly to identify which method(s) work!
-        </p>
-      </div>
-      <!-- ============================================================================
-           END TEMPORARY DEBUG LEGEND
-           ============================================================================ -->
-
       <div class="game-layout">
         <div class="sidebar">
           <h2 style="margin-bottom: 15px;">Players</h2>
@@ -827,8 +767,7 @@
   <script src="./src/mapgen.js"></script>
 
   <script type="module">
-    // This will be populated with the compiled game logic
-    import * as Game from './dist/index.js';
+    import * as Game from './src/api/index.js';
 
     let gameState = null;
     let selectedMapType = 'standard';
@@ -1053,24 +992,14 @@
         const playerDiv = document.createElement('div');
         playerDiv.className = 'player-info' + (isCurrent ? ' current' : '');
 
-        const resources = Object.entries(player.resources)
+        const totalRes = Object.entries(player.resources)
           .filter(([res]) => res !== 'desert')
-          .map(([res, count]) => `${res}: ${count}`)
-          .join(', ');
+          .reduce((sum, [, count]) => sum + count, 0);
 
         playerDiv.innerHTML = `
-          <h3>${player.name} ${isCurrent ? '⭐' : ''}</h3>
-          <div style="margin-bottom: 10px;">
-            <strong>VP:</strong> ${player.victoryPoints} |
-            <strong>Settlements:</strong> ${player.settlements.length} |
-            <strong>Cities:</strong> ${player.cities.length}
-          </div>
-          <div class="resource-display">
-            ${Object.entries(player.resources)
-              .filter(([res]) => res !== 'desert')
-              .map(([res, count]) => `<div class="resource-item">${res}: ${count}</div>`)
-              .join('')}
-          </div>
+          <div class="player-color-dot" style="background: ${player.color || '#999'};"></div>
+          <span class="player-name">${player.name}</span>
+          <span class="player-stats">VP:${player.victoryPoints} R:${totalRes}</span>
         `;
 
         playerList.appendChild(playerDiv);
@@ -1110,36 +1039,16 @@
         }
         ctx.closePath();
 
-        // ============================================================================
-        // TEMPORARY DEBUG: Use winding debug colors if available
-        // TODO: Remove after identifying correct winding method
-        // ============================================================================
-        let debugColor = null;
-        if (window.windingDebugInfo && window.windingDebugInfo.methods) {
-          const debugInfo = window.windingDebugInfo.methods.find(m => m.tileId === tile.id);
-          if (debugInfo) {
-            debugColor = debugInfo.color;
-          }
-        }
-
-        if (debugColor) {
-          // Use debug color to identify winding method
-          ctx.fillStyle = debugColor;
-        } else {
-          // Fill based on resource (normal mode)
-          const colors = {
-            wood: '#228B22',
-            brick: '#A0522D',
-            sheep: '#90EE90',
-            wheat: '#FFD700',
-            ore: '#708090',
-            desert: '#DEB887'
-          };
-          ctx.fillStyle = colors[tile.resource] || '#ccc';
-        }
-        // ============================================================================
-        // END TEMPORARY DEBUG
-        // ============================================================================
+        // Fill based on resource
+        const colors = {
+          wood: '#228B22',
+          brick: '#A0522D',
+          sheep: '#90EE90',
+          wheat: '#FFD700',
+          ore: '#708090',
+          desert: '#DEB887'
+        };
+        ctx.fillStyle = colors[tile.resource] || '#ccc';
         ctx.fill();
 
         ctx.strokeStyle = '#333';

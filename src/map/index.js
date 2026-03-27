@@ -1,0 +1,58 @@
+// Main map generation interface
+
+import { generateStandardCatanBoard } from './standardBoard.js';
+import { generateExpandedHexMap } from './hexGenerator.js';
+import { generateDelaunayMap } from './delaunayGenerator.js';
+import { validateMapOrThrow } from './validator.js';
+
+export function generateMap(options) {
+  let mapData;
+
+  switch (options.mapType) {
+    case 'standard':
+      mapData = generateStandardCatanBoard(options.seed);
+      break;
+
+    case 'expanded-hex':
+      mapData = generateExpandedHexMap(
+        options.expandedMapSize || 30,
+        options.seed
+      );
+      break;
+
+    case 'expanded-delaunay':
+      mapData = generateDelaunayMap({
+        seed: options.seed,
+        targetTileCount: options.delaunayTileCount || 30,
+        irregularity: 0.3,
+        boundingRadius: 300,
+        smoothingIters: 2
+      });
+      break;
+
+    default:
+      throw new Error(`Unknown map type: ${options.mapType}`);
+  }
+
+  // Validate the generated map
+  try {
+    validateMapOrThrow(mapData);
+  } catch (error) {
+    if (options.mapType === 'expanded-delaunay') {
+      mapData = generateExpandedHexMap(
+        options.delaunayTileCount || 30,
+        options.seed
+      );
+      validateMapOrThrow(mapData);
+    } else {
+      throw error;
+    }
+  }
+
+  return mapData;
+}
+
+export * from './validator.js';
+export * from './standardBoard.js';
+export * from './hexGenerator.js';
+export * from './delaunayGenerator.js';
