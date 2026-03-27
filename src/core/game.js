@@ -168,6 +168,9 @@ export function validateAction(state, action) {
     case 'executeTrade':
       return validateExecuteTrade(state, action.payload.tradeId);
 
+    case 'endTurn':
+      return { ok: true };
+
     default:
       return { ok: false, reason: 'Unknown action type' };
   }
