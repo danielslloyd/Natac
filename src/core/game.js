@@ -41,7 +41,7 @@ export function createGame(playerNames, options) {
   const players = playerNames.map((name, idx) => ({
     id: generateId('player'),
     name,
-    color: ['red', 'blue', 'white', 'orange', 'green', 'brown'][idx],
+    color: ['red', 'blue', 'orange', 'green', 'brown', 'purple'][idx],
     resources: {
       [Resource.ORE]: 0,
       [Resource.SHEEP]: 0,
@@ -92,7 +92,10 @@ export function createGame(playerNames, options) {
     phase: 'setup',
     setupPhase: {
       round: 0,
-      settlementsPlaced: 0
+      settlementsPlaced: 0,
+      roadsPlaced: 0,
+      playerSettlementThisTurn: false,
+      playerRoadThisTurn: false
     },
     diceHistory: [],
     robberTileId,
@@ -196,6 +199,11 @@ function validatePlaceSettlement(state, player, nodeId) {
     }
   }
 
+  // In setup phase, only one settlement per turn
+  if (state.phase === 'setup' && state.setupPhase.playerSettlementThisTurn) {
+    return { ok: false, reason: 'Already placed a settlement this turn' };
+  }
+
   // In main phase, must be connected to a road
   if (state.phase === 'main') {
     const hasConnectedRoad = state.edges.some(
@@ -223,6 +231,11 @@ function validatePlaceRoad(state, player, edgeId) {
   // Check if edge is occupied
   if (edge.roadOwner) {
     return { ok: false, reason: 'Road already placed here' };
+  }
+
+  // In setup phase, only one road per turn
+  if (state.phase === 'setup' && state.setupPhase.playerRoadThisTurn) {
+    return { ok: false, reason: 'Already placed a road this turn' };
   }
 
   // Must connect to player's existing road or settlement
@@ -324,14 +337,18 @@ export function applyAction(state, action) {
         deductResources(player, BUILDING_COSTS.settlement);
       }
 
-      // Setup phase: give resources for second settlement
-      if (newState.phase === 'setup' && newState.setupPhase.round === 1) {
-        node.tiles.forEach(tileId => {
-          const tile = newState.tiles.find(t => t.id === tileId);
-          if (tile && tile.resource !== Resource.DESERT) {
-            player.resources[tile.resource]++;
-          }
-        });
+      // Setup phase: track settlement placement and give resources for second settlement
+      if (newState.phase === 'setup') {
+        newState.setupPhase.playerSettlementThisTurn = true;
+        newState.setupPhase.settlementsPlaced++;
+        if (newState.setupPhase.round === 1) {
+          node.tiles.forEach(tileId => {
+            const tile = newState.tiles.find(t => t.id === tileId);
+            if (tile && tile.resource !== Resource.DESERT) {
+              player.resources[tile.resource]++;
+            }
+          });
+        }
       }
 
       player.victoryPoints++;
@@ -347,6 +364,9 @@ export function applyAction(state, action) {
 
       if (newState.phase === 'main') {
         deductResources(player, BUILDING_COSTS.road);
+      } else if (newState.phase === 'setup') {
+        newState.setupPhase.playerRoadThisTurn = true;
+        newState.setupPhase.roadsPlaced++;
       }
       break;
     }
@@ -383,18 +403,29 @@ export function applyAction(state, action) {
 
       // Handle setup phase progression
       if (newState.phase === 'setup') {
-        newState.setupPhase.settlementsPlaced++;
-
         const totalPlayers = newState.players.length;
-        if (newState.setupPhase.settlementsPlaced === totalPlayers) {
-          newState.setupPhase.round = 1;
-          newState.turnOrder.reverse();
-          newState.currentPlayerIdx = 0;
-        } else if (newState.setupPhase.settlementsPlaced === totalPlayers * 2) {
-          newState.phase = 'main';
-          newState.turnOrder.reverse();
-          newState.currentPlayerIdx = 0;
-          delete newState.setupPhase;
+
+        // Check if current player has completed their turn (placed 1 settlement and 1 road)
+        if (newState.setupPhase.playerSettlementThisTurn && newState.setupPhase.playerRoadThisTurn) {
+          // Reset flags for next player
+          newState.setupPhase.playerSettlementThisTurn = false;
+          newState.setupPhase.playerRoadThisTurn = false;
+
+          // After all players have taken a turn, move to next round
+          if (newState.currentPlayerIdx === 0) {
+            newState.setupPhase.round++;
+
+            // After 2 rounds (2 settlements and 2 roads per player), switch to main phase
+            if (newState.setupPhase.round >= 2) {
+              newState.phase = 'main';
+              delete newState.setupPhase;
+            } else {
+              // Reverse turn order for round 1
+              if (newState.setupPhase.round === 1) {
+                newState.turnOrder.reverse();
+              }
+            }
+          }
         }
       }
       break;

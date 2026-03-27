@@ -534,6 +534,33 @@
     .ai-review-banner strong {
       color: #856404;
     }
+
+    .resource-blocks {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .resource-block {
+      width: 14px;
+      height: 14px;
+      border-radius: 2px;
+      border: 1px solid #333;
+    }
+
+    .footer-info {
+      position: absolute;
+      bottom: 5px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 0.75rem;
+      color: #999;
+      pointer-events: none;
+    }
+
+    .canvas-container {
+      position: relative;
+    }
   </style>
 </head>
 <body>
@@ -608,7 +635,7 @@
           </div>
 
           <div class="controls">
-            <button id="rollDiceBtn">Roll Dice</button>
+            <button id="rollDiceBtn" style="display: none;">Roll Dice</button>
             <button id="endTurnBtn">End Turn</button>
             <button id="proposeTradeBtn">Propose Trade</button>
           </div>
@@ -622,13 +649,10 @@
         </div>
 
         <div class="canvas-container">
-          <div id="mapInfo" class="info-panel">
-            <strong>Map Type:</strong> <span id="mapTypeDisplay">-</span><br>
-            <strong>Tiles:</strong> <span id="tileCount">-</span> |
-            <strong>Nodes:</strong> <span id="nodeCount">-</span> |
-            <strong>Edges:</strong> <span id="edgeCount">-</span>
-          </div>
           <canvas id="gameCanvas" width="900" height="700"></canvas>
+          <div class="footer-info">
+            Map: <span id="mapTypeDisplay">-</span>
+          </div>
           <div id="clickInfo" style="margin-top: 10px; font-size: 0.9rem; color: #666;">
             Click on nodes to place settlements, click on edges to place roads
           </div>
@@ -987,21 +1011,39 @@
       const playerList = document.getElementById('playerList');
       playerList.innerHTML = '';
 
+      const resourceColors = {
+        ore: '#708090',
+        brick: '#A0522D',
+        wheat: '#FFD700',
+        sheep: '#90EE90',
+        wood: '#228B22'
+      };
+
       gameState.players.forEach((player, idx) => {
         const isCurrent = idx === gameState.currentPlayerIdx;
         const playerDiv = document.createElement('div');
         playerDiv.className = 'player-info' + (isCurrent ? ' current' : '');
 
-        const totalRes = Object.entries(player.resources)
-          .filter(([res]) => res !== 'desert')
-          .reduce((sum, [, count]) => sum + count, 0);
+        // Generate resource blocks
+        let resourceBlocksHTML = '<div class="resource-blocks">';
+        ['ore', 'brick', 'wheat', 'sheep', 'wood'].forEach(res => {
+          const count = player.resources[res] || 0;
+          for (let i = 0; i < Math.min(count, 5); i++) {
+            resourceBlocksHTML += `<div class="resource-block" style="background: ${resourceColors[res]};"></div>`;
+          }
+          if (count > 5) {
+            resourceBlocksHTML += `<span style="font-size: 0.7rem; margin-left: 2px;">+${count - 5}</span>`;
+          }
+        });
+        resourceBlocksHTML += '</div>';
 
         playerDiv.innerHTML = `
           <div class="player-color-dot" style="background: ${player.color || '#999'};"></div>
           <span class="player-name">${player.name}</span>
-          <span class="player-stats">VP:${player.victoryPoints} R:${totalRes}</span>
+          <span class="player-stats">VP:${player.victoryPoints}</span>
         `;
 
+        playerDiv.innerHTML += resourceBlocksHTML;
         playerList.appendChild(playerDiv);
       });
 
@@ -1010,7 +1052,13 @@
         `${currentPlayer.name}'s turn (${gameState.phase === 'setup' ? 'Setup' : 'Main'} phase)`;
 
       // Setup event listeners
-      document.getElementById('rollDiceBtn').onclick = handleRollDice;
+      const rollBtn = document.getElementById('rollDiceBtn');
+      if (gameState.phase === 'setup') {
+        rollBtn.style.display = 'none';
+      } else {
+        rollBtn.style.display = 'block';
+        rollBtn.onclick = handleRollDice;
+      }
       document.getElementById('endTurnBtn').onclick = handleEndTurn;
     }
 
@@ -1445,6 +1493,24 @@
       document.getElementById('diceResult').textContent = '';
       updateUI();
       renderMap();
+
+      // Auto-roll at the start of main phase
+      if (gameState.phase === 'main') {
+        setTimeout(() => {
+          const roll = Game.rollDice();
+          document.getElementById('diceResult').textContent = `🎲 Rolled: ${roll}`;
+
+          if (roll === 7) {
+            gameState = Game.handleRobberActivation(gameState);
+            alert('Rolled a 7! Players with >7 cards must discard. Move the robber!');
+          } else {
+            gameState = Game.collectResources(gameState, roll);
+          }
+
+          updateUI();
+          renderMap();
+        }, 500);
+      }
     }
 
     // ========== TRADE PROPOSAL FUNCTIONS ==========
