@@ -1,9 +1,9 @@
 @echo off
-REM build_serve_run.bat - install deps, serve, and open
+REM build_serve_run.bat - install deps, serve on random port, and open
 cd /d "%~dp0"
 
 echo =====================================================
-echo Natac: Install deps, Serve (http-server), Launch index.html
+echo Natac: Install deps, Serve on random port, Launch index.html
 echo =====================================================
 echo.
 
@@ -16,6 +16,15 @@ if %ERRORLEVEL% NEQ 0 goto NPM_MISSING
 echo Node and npm found.
 echo.
 
+REM --- Kill any existing http-server processes ---
+echo Killing any existing http-server instances...
+taskkill /F /IM node.exe /FI "WINDOWTITLE eq Natac Server" >nul 2>&1
+REM Alternative: kill by process name pattern if Natac Server window still exists
+for /f "tokens=2" %%A in ('tasklist ^| findstr /i "node.exe"') do (
+  taskkill /F /PID %%A >nul 2>&1
+)
+echo.
+
 REM --- install deps if needed ---
 if not exist "node_modules" (
   echo Running npm install...
@@ -23,21 +32,27 @@ if not exist "node_modules" (
   if %ERRORLEVEL% NEQ 0 goto NPM_INSTALL_FAILED
 )
 
-REM --- start server in a new window (persistent) ---
-echo Starting server in a new window (npm run serve)...
-start "Natac Server" cmd /k "npm run serve"
+REM --- Generate random port between 3000 and 9999 ---
+setlocal enabledelayedexpansion
+for /f %%x in ('powershell -Command "[random]::new().Next(3000, 10000)"') do set PORT=%%x
+echo Generated random port: !PORT!
+echo.
+
+REM --- start server in a new window (persistent) on random port ---
+echo Starting server in a new window on port !PORT!...
+start "Natac Server" cmd /k "npx http-server -p !PORT!"
 if %ERRORLEVEL% NEQ 0 goto START_FAILED
 
 REM Give server a moment to start
 timeout /t 3 /nobreak >nul
 
 REM Open index.html in default browser
-set "URL=http://localhost:8080/index.html"
+set "URL=http://localhost:!PORT!/index.html"
 echo Opening %URL% in default browser...
-start "" "%URL%"
+start "" "!URL!"
 
 echo.
-echo Server launched in separate window titled "Natac Server".
+echo Server launched in separate window titled "Natac Server" on port !PORT!.
 echo No build step needed - just edit JS files and refresh!
 echo.
 pause
