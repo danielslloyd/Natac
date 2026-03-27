@@ -601,20 +601,15 @@
         <div class="player-setup">
           <div class="player-inputs">
             <div class="player-input">
-              <label>Player 1</label>
-              <input type="text" id="player1" value="Alice" />
+              <label>Your Name (Player 1)</label>
+              <input type="text" id="player1" value="You" />
             </div>
             <div class="player-input">
-              <label>Player 2</label>
-              <input type="text" id="player2" value="Bob" />
+              <label>Number of Players (2-6)</label>
+              <input type="number" id="playerCount" min="2" max="6" value="4" />
             </div>
             <div class="player-input">
-              <label>Player 3</label>
-              <input type="text" id="player3" value="Charlie" />
-            </div>
-            <div class="player-input">
-              <label>Player 4 (Optional)</label>
-              <input type="text" id="player4" placeholder="Optional" />
+              <label style="font-size: 0.9rem; color: #666;">Other players will be controlled by AI</label>
             </div>
           </div>
         </div>
@@ -638,6 +633,17 @@
             <button id="rollDiceBtn" style="display: none;">Roll Dice</button>
             <button id="endTurnBtn">End Turn</button>
             <button id="proposeTradeBtn">Propose Trade</button>
+          </div>
+
+          <div id="gameSettings" style="margin-top: 15px; padding: 10px; background: #f0f0f0; border-radius: 6px; font-size: 0.85rem;">
+            <div style="margin-bottom: 8px;">
+              <label>Handle Size: <span id="handleSizeValue">8</span>px</label>
+              <input type="range" id="handleSizeSlider" min="4" max="16" value="8" style="width: 100%; margin: 4px 0;">
+            </div>
+            <div>
+              <label>Edge Highlight: <span id="edgeThresholdValue">10</span>%</label>
+              <input type="range" id="edgeThresholdSlider" min="0" max="50" value="10" style="width: 100%; margin: 4px 0;">
+            </div>
           </div>
 
           <div id="diceResult" style="margin-top: 15px; font-size: 1.2rem; font-weight: bold;"></div>
@@ -796,6 +802,8 @@
     let gameState = null;
     let selectedMapType = 'standard';
     let canvas, ctx;
+    let handleSize = 8; // pixels
+    let edgeHighlightThreshold = 0.10; // 10% closer to edge midpoint triggers highlight
 
     // View state for zoom and pan
     let viewState = {
@@ -827,17 +835,15 @@
     document.getElementById('startGameBtn').addEventListener('click', startGame);
 
     function startGame() {
-      const playerNames = [
-        document.getElementById('player1').value,
-        document.getElementById('player2').value,
-        document.getElementById('player3').value,
-        document.getElementById('player4').value
-      ].filter(name => name.trim() !== '');
+      const humanPlayerName = document.getElementById('player1').value.trim() || 'You';
+      const playerCountInput = parseInt(document.getElementById('playerCount').value) || 4;
+      const playerCount = Math.max(2, Math.min(6, playerCountInput));
 
-      if (playerNames.length < 2) {
-        alert('Please enter at least 2 player names');
-        return;
-      }
+      const aiNames = ['Alice', 'Bob', 'Charlie', 'Diana', 'Eve'];
+      const playerNames = [humanPlayerName, ...aiNames.slice(0, playerCount - 1)];
+
+      // Track which players are AI
+      const aiPlayerIndices = new Set(Array.from({length: playerCount - 1}, (_, i) => i + 1));
 
       // Get tile count from input (for non-standard maps)
       let tileCount = 30; // default
@@ -857,7 +863,8 @@
 
       try {
         gameState = Game.createGame(playerNames, options);
-        console.log('Game created:', gameState);
+        gameState.aiPlayerIndices = aiPlayerIndices;
+        console.log('Game created:', gameState, 'AI players:', Array.from(aiPlayerIndices));
 
         document.getElementById('setupScreen').style.display = 'none';
         document.getElementById('gameScreen').style.display = 'block';
@@ -865,6 +872,9 @@
         initializeCanvas();
         updateUI();
         renderMap();
+
+        // Start AI turn if needed
+        scheduleAITurn();
       } catch (error) {
         alert('Error creating game: ' + error.message);
         console.error(error);
@@ -888,9 +898,6 @@
 
       // Update map info
       document.getElementById('mapTypeDisplay').textContent = selectedMapType;
-      document.getElementById('tileCount').textContent = gameState.tiles.length;
-      document.getElementById('nodeCount').textContent = gameState.nodes.length;
-      document.getElementById('edgeCount').textContent = gameState.edges.length;
     }
 
     function calculateMapBounds() {
@@ -974,20 +981,33 @@
       if (isPanning) return;
       const rect = canvas.getBoundingClientRect();
       const [wx, wy] = screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
-      const hitRadius = 8 / viewState.zoom;
+      const hitRadius = handleSize / viewState.zoom;
 
-      const hovTile = gameState.tiles.find(t => t.polygonPoints?.length && pointInPolygon([wx, wy], t.polygonPoints));
       const hovNode = gameState.nodes.find(n => n.location &&
         Math.hypot(wx - n.location[0], wy - n.location[1]) < hitRadius);
-      const hovEdge = !hovNode && gameState.edges.find(e => {
-        const a = gameState.nodes.find(n => n.id === e.nodeA);
-        const b = gameState.nodes.find(n => n.id === e.nodeB);
-        if (!a?.location || !b?.location) return false;
-        return pointToSegmentDistance([wx, wy], a.location, b.location) < hitRadius;
-      });
 
-      const next = { tileId: hovTile?.id ?? null, nodeId: hovNode?.id ?? null, edgeId: hovEdge?.id ?? null };
-      if (next.tileId !== hoverState.tileId || next.nodeId !== hoverState.nodeId || next.edgeId !== hoverState.edgeId) {
+      // For edges: only highlight if closer to edge midpoint than to nearest node (with threshold)
+      let hovEdge = null;
+      if (!hovNode) {
+        hovEdge = gameState.edges.find(e => {
+          const a = gameState.nodes.find(n => n.id === e.nodeA);
+          const b = gameState.nodes.find(n => n.id === e.nodeB);
+          if (!a?.location || !b?.location) return false;
+          const distToEdge = pointToSegmentDistance([wx, wy], a.location, b.location);
+          if (distToEdge > hitRadius) return false;
+
+          // Check if closer to edge than to nodes (with threshold)
+          const distToA = Math.hypot(wx - a.location[0], wy - a.location[1]);
+          const distToB = Math.hypot(wx - b.location[0], wy - b.location[1]);
+          const distToNearest = Math.min(distToA, distToB);
+
+          // Highlight only if: distToEdge <= distToNearest * (1 - threshold)
+          return distToEdge <= distToNearest * (1 - edgeHighlightThreshold);
+        });
+      }
+
+      const next = { tileId: null, nodeId: hovNode?.id ?? null, edgeId: hovEdge?.id ?? null };
+      if (next.nodeId !== hoverState.nodeId || next.edgeId !== hoverState.edgeId) {
         hoverState = next;
         canvas.style.cursor = (hovNode || hovEdge) ? 'pointer' : 'default';
         renderMap();
@@ -1098,6 +1118,24 @@
         rollBtn.onclick = handleRollDice;
       }
       document.getElementById('endTurnBtn').onclick = handleEndTurn;
+
+      // Setup slider listeners
+      const handleSizeSlider = document.getElementById('handleSizeSlider');
+      const edgeThresholdSlider = document.getElementById('edgeThresholdSlider');
+      if (handleSizeSlider) {
+        handleSizeSlider.oninput = (e) => {
+          handleSize = parseInt(e.target.value);
+          document.getElementById('handleSizeValue').textContent = handleSize;
+          renderMap();
+        };
+      }
+      if (edgeThresholdSlider) {
+        edgeThresholdSlider.oninput = (e) => {
+          edgeHighlightThreshold = parseInt(e.target.value) / 100;
+          document.getElementById('edgeThresholdValue').textContent = e.target.value;
+          renderMap();
+        };
+      }
     }
 
     function renderMap() {
@@ -1131,18 +1169,10 @@
         }
         ctx.closePath();
 
-        const isHovered = tile.id === hoverState.tileId;
         const baseColor = tileColors[tile.resource] || '#ccc';
-        ctx.fillStyle = isHovered ? baseColor + 'cc' : baseColor; // slight lightening via transparency
-        if (isHovered) {
-          ctx.save();
-          ctx.fillStyle = 'rgba(255,255,255,0.25)';
-          ctx.fill();
-          ctx.restore();
-          ctx.fillStyle = baseColor;
-        }
+        ctx.fillStyle = baseColor;
         ctx.fill();
-        ctx.strokeStyle = isHovered ? '#fff' : '#333';
+        ctx.strokeStyle = '#333';
         ctx.lineWidth = 2 * iz;
         ctx.stroke();
 
@@ -1202,8 +1232,8 @@
         ctx.stroke();
       });
 
-      // Draw nodes (settlements/cities) — constant 6px radius on screen
-      const nodeR = 6 * iz;
+      // Draw nodes (settlements/cities) — parameterized handle size
+      const nodeR = (handleSize / 2) * iz;
       gameState.nodes.forEach(node => {
         if (!node.location) return;
         const isHovered = node.id === hoverState.nodeId;
@@ -1521,6 +1551,78 @@
       renderMap();
     }
 
+    function scheduleAITurn() {
+      if (!gameState.aiPlayerIndices || !gameState.aiPlayerIndices.has(gameState.currentPlayerIdx)) {
+        return; // Not an AI player's turn
+      }
+      setTimeout(executeAITurn, 800);
+    }
+
+    function executeAITurn() {
+      const currentPlayer = Game.getCurrentPlayer(gameState);
+      if (!gameState.aiPlayerIndices.has(gameState.currentPlayerIdx)) return;
+
+      // In setup phase: place settlement and road
+      if (gameState.phase === 'setup') {
+        // Try to place a settlement
+        const validNodes = gameState.nodes.filter(n => {
+          const validation = Game.validateAction(gameState, {
+            type: 'placeSettlement',
+            playerId: currentPlayer.id,
+            payload: { nodeId: n.id }
+          });
+          return validation.ok;
+        });
+
+        if (validNodes.length > 0 && !gameState.setupPhase.playerSettlementThisTurn) {
+          const node = validNodes[Math.floor(Math.random() * validNodes.length)];
+          gameState = Game.applyAction(gameState, {
+            type: 'placeSettlement',
+            playerId: currentPlayer.id,
+            payload: { nodeId: node.id }
+          });
+          updateUI();
+          renderMap();
+          return;
+        }
+
+        // Try to place a road
+        const validEdges = gameState.edges.filter(e => {
+          const validation = Game.validateAction(gameState, {
+            type: 'placeRoad',
+            playerId: currentPlayer.id,
+            payload: { edgeId: e.id }
+          });
+          return validation.ok;
+        });
+
+        if (validEdges.length > 0 && gameState.setupPhase.playerSettlementThisTurn && !gameState.setupPhase.playerRoadThisTurn) {
+          const edge = validEdges[Math.floor(Math.random() * validEdges.length)];
+          gameState = Game.applyAction(gameState, {
+            type: 'placeRoad',
+            playerId: currentPlayer.id,
+            payload: { edgeId: edge.id }
+          });
+          updateUI();
+          renderMap();
+          return;
+        }
+
+        // End turn if both placed
+        if (gameState.setupPhase.playerSettlementThisTurn && gameState.setupPhase.playerRoadThisTurn) {
+          handleEndTurn();
+        }
+      }
+      // In main phase: just end turn (or could add trading logic later)
+      else {
+        // Random chance to propose trade
+        if (Math.random() < 0.3) {
+          // AI proposes random trade (simplified)
+        }
+        setTimeout(handleEndTurn, 500);
+      }
+    }
+
     function handleEndTurn() {
       const action = {
         type: 'endTurn',
@@ -1548,7 +1650,11 @@
 
           updateUI();
           renderMap();
+          scheduleAITurn();
         }, 500);
+      } else {
+        // Setup phase: continue with next player
+        scheduleAITurn();
       }
     }
 
@@ -1803,6 +1909,15 @@
           payload: { tradeId }
         };
         gameState = Game.applyAction(gameState, action);
+
+        // Check if trade is now accepted by all and auto-execute
+        const trade = gameState.tradeProposals.find(t => t.id === tradeId);
+        if (trade && trade.status === 'accepted') {
+          setTimeout(() => {
+            window.executeTrade(tradeId);
+          }, 300);
+        }
+
         updateUI();
         updateTradesList();
       } catch (error) {
