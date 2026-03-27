@@ -883,6 +883,7 @@
       canvas.addEventListener('wheel', handleZoom, { passive: false });
       canvas.addEventListener('mousedown', handlePanStart);
       canvas.addEventListener('mousemove', handlePanMove);
+      canvas.addEventListener('mousemove', handleMouseMove);
       canvas.addEventListener('mouseup', handlePanEnd);
 
       // Update map info
@@ -941,12 +942,57 @@
       viewState.panY = 0;
     }
 
-    // Pan handling
+    // Pan / hover state
     let isPanning = false;
     let panStartX = 0;
     let panStartY = 0;
     let lastPanX = 0;
     let lastPanY = 0;
+    let hoverState = { nodeId: null, edgeId: null, tileId: null };
+
+    function screenToWorld(screenX, screenY) {
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+      const mapCenterX = (viewState.mapBounds.minX + viewState.mapBounds.maxX) / 2;
+      const mapCenterY = (viewState.mapBounds.minY + viewState.mapBounds.maxY) / 2;
+      return [
+        ((screenX - centerX - viewState.panX) / viewState.zoom) + mapCenterX,
+        ((screenY - centerY - viewState.panY) / viewState.zoom) + mapCenterY
+      ];
+    }
+
+    function pointInPolygon([x, y], polygon) {
+      let inside = false;
+      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const [xi, yi] = polygon[i], [xj, yj] = polygon[j];
+        if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+      }
+      return inside;
+    }
+
+    function handleMouseMove(event) {
+      if (isPanning) return;
+      const rect = canvas.getBoundingClientRect();
+      const [wx, wy] = screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
+      const hitRadius = 8 / viewState.zoom;
+
+      const hovTile = gameState.tiles.find(t => t.polygonPoints?.length && pointInPolygon([wx, wy], t.polygonPoints));
+      const hovNode = gameState.nodes.find(n => n.location &&
+        Math.hypot(wx - n.location[0], wy - n.location[1]) < hitRadius);
+      const hovEdge = !hovNode && gameState.edges.find(e => {
+        const a = gameState.nodes.find(n => n.id === e.nodeA);
+        const b = gameState.nodes.find(n => n.id === e.nodeB);
+        if (!a?.location || !b?.location) return false;
+        return pointToSegmentDistance([wx, wy], a.location, b.location) < hitRadius;
+      });
+
+      const next = { tileId: hovTile?.id ?? null, nodeId: hovNode?.id ?? null, edgeId: hovEdge?.id ?? null };
+      if (next.tileId !== hoverState.tileId || next.nodeId !== hoverState.nodeId || next.edgeId !== hoverState.edgeId) {
+        hoverState = next;
+        canvas.style.cursor = (hovNode || hovEdge) ? 'pointer' : 'default';
+        renderMap();
+      }
+    }
 
     function handlePanStart(event) {
       if (viewState.zoom > viewState.minZoom) {
@@ -966,20 +1012,12 @@
         viewState.panX = lastPanX + dx;
         viewState.panY = lastPanY + dy;
         renderMap();
-      } else if (viewState.zoom > viewState.minZoom) {
-        canvas.style.cursor = 'grab';
-      } else {
-        canvas.style.cursor = 'crosshair';
       }
     }
 
     function handlePanEnd() {
       isPanning = false;
-      if (viewState.zoom > viewState.minZoom) {
-        canvas.style.cursor = 'grab';
-      } else {
-        canvas.style.cursor = 'crosshair';
-      }
+      canvas.style.cursor = 'default';
     }
 
     function handleZoom(event) {
@@ -1076,6 +1114,12 @@
       ctx.scale(viewState.zoom, viewState.zoom);
       ctx.translate(-mapCenterX, -mapCenterY);
 
+      const tileColors = {
+        wood: '#228B22', brick: '#A0522D', sheep: '#90EE90',
+        wheat: '#FFD700', ore: '#708090', desert: '#DEB887'
+      };
+      const iz = 1 / viewState.zoom; // inverse zoom: keeps sizes constant in screen pixels
+
       // Draw tiles
       gameState.tiles.forEach(tile => {
         if (!tile.polygonPoints || tile.polygonPoints.length === 0) return;
@@ -1087,59 +1131,52 @@
         }
         ctx.closePath();
 
-        // Fill based on resource
-        const colors = {
-          wood: '#228B22',
-          brick: '#A0522D',
-          sheep: '#90EE90',
-          wheat: '#FFD700',
-          ore: '#708090',
-          desert: '#DEB887'
-        };
-        ctx.fillStyle = colors[tile.resource] || '#ccc';
+        const isHovered = tile.id === hoverState.tileId;
+        const baseColor = tileColors[tile.resource] || '#ccc';
+        ctx.fillStyle = isHovered ? baseColor + 'cc' : baseColor; // slight lightening via transparency
+        if (isHovered) {
+          ctx.save();
+          ctx.fillStyle = 'rgba(255,255,255,0.25)';
+          ctx.fill();
+          ctx.restore();
+          ctx.fillStyle = baseColor;
+        }
         ctx.fill();
-
-        ctx.strokeStyle = '#333';
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = isHovered ? '#fff' : '#333';
+        ctx.lineWidth = 2 * iz;
         ctx.stroke();
 
         // Draw dice number
         if (tile.diceNumber) {
-          const center = tile.polygonPoints.reduce(
-            (acc, p) => [acc[0] + p[0], acc[1] + p[1]],
-            [0, 0]
-          );
+          const center = tile.polygonPoints.reduce((acc, p) => [acc[0] + p[0], acc[1] + p[1]], [0, 0]);
           center[0] /= tile.polygonPoints.length;
           center[1] /= tile.polygonPoints.length;
 
-          ctx.fillStyle = tile.robberPresent ? 'red' : 'white';
+          ctx.fillStyle = tile.robberPresent ? '#e44' : 'white';
           ctx.beginPath();
-          ctx.arc(center[0], center[1], 9, 0, Math.PI * 2);
+          ctx.arc(center[0], center[1], 9 * iz, 0, Math.PI * 2);
           ctx.fill();
           ctx.strokeStyle = '#333';
-          ctx.lineWidth = 1;
+          ctx.lineWidth = 1 * iz;
           ctx.stroke();
 
           ctx.fillStyle = '#000';
-          ctx.font = 'bold 8px Arial';
+          ctx.font = `bold ${10 * iz}px Arial`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText(tile.diceNumber.toString(), center[0], center[1]);
         }
 
-        // Draw robber indicator
+        // Draw robber indicator (R inside tile center circle)
         if (tile.robberPresent) {
-          const center = tile.polygonPoints.reduce(
-            (acc, p) => [acc[0] + p[0], acc[1] + p[1]],
-            [0, 0]
-          );
+          const center = tile.polygonPoints.reduce((acc, p) => [acc[0] + p[0], acc[1] + p[1]], [0, 0]);
           center[0] /= tile.polygonPoints.length;
           center[1] /= tile.polygonPoints.length;
-
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-          ctx.beginPath();
-          ctx.arc(center[0], center[1] + 25, 8, 0, Math.PI * 2);
-          ctx.fill();
+          ctx.fillStyle = '#555';
+          ctx.font = `bold ${9 * iz}px Arial`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('R', center[0], center[1]);
         }
       });
 
@@ -1147,9 +1184,9 @@
       gameState.edges.forEach(edge => {
         const nodeA = gameState.nodes.find(n => n.id === edge.nodeA);
         const nodeB = gameState.nodes.find(n => n.id === edge.nodeB);
-
         if (!nodeA?.location || !nodeB?.location) return;
 
+        const isHovered = edge.id === hoverState.edgeId;
         ctx.beginPath();
         ctx.moveTo(nodeA.location[0], nodeA.location[1]);
         ctx.lineTo(nodeB.location[0], nodeB.location[1]);
@@ -1157,35 +1194,37 @@
         if (edge.roadOwner) {
           const owner = gameState.players.find(p => p.id === edge.roadOwner);
           ctx.strokeStyle = owner?.color || '#000';
-          ctx.lineWidth = 5;
+          ctx.lineWidth = (isHovered ? 7 : 5) * iz;
         } else {
-          ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
-          ctx.lineWidth = 1;
+          ctx.strokeStyle = isHovered ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.18)';
+          ctx.lineWidth = (isHovered ? 3 : 1.5) * iz;
         }
-
         ctx.stroke();
       });
 
-      // Draw nodes (settlements/cities)
+      // Draw nodes (settlements/cities) — constant 6px radius on screen
+      const nodeR = 6 * iz;
       gameState.nodes.forEach(node => {
         if (!node.location) return;
+        const isHovered = node.id === hoverState.nodeId;
 
         ctx.beginPath();
-        ctx.arc(node.location[0], node.location[1], 6, 0, Math.PI * 2);
+        if (node.occupant?.type === 'city') {
+          ctx.arc(node.location[0], node.location[1], nodeR * 1.6, 0, Math.PI * 2);
+        } else {
+          ctx.arc(node.location[0], node.location[1], isHovered ? nodeR * 1.3 : nodeR, 0, Math.PI * 2);
+        }
 
         if (node.occupant) {
           const owner = gameState.players.find(p => p.id === node.occupant.playerId);
           ctx.fillStyle = owner?.color || '#000';
-          if (node.occupant.type === 'city') {
-            ctx.arc(node.location[0], node.location[1], 10, 0, Math.PI * 2);
-          }
         } else {
-          ctx.fillStyle = 'white';
+          ctx.fillStyle = isHovered ? '#ddd' : 'white';
         }
 
         ctx.fill();
-        ctx.strokeStyle = '#333';
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = isHovered ? '#000' : '#444';
+        ctx.lineWidth = 1.5 * iz;
         ctx.stroke();
       });
 
