@@ -1,1 +1,0 @@
-{"version":3,"file":"standardBoard.js","sourceRoot":"","sources":["../../src/map/standardBoard.ts"],"names":[],"mappings":"AAAA,yDAAyD;AAGzD,OAAO,EAAE,4BAA4B,EAAE,MAAM,mBAAmB,CAAC;AAEjE,MAAM,UAAU,0BAA0B,CAAC,IAAsB;IAC/D,6CAA6C;IAC7C,OAAO,4BAA4B,CAAC,gBAAgB,EAAE,EAAE,EAAE,CAAC,EAAE,IAAI,IAAI,IAAI,CAAC,GAAG,EAAE,CAAC,CAAC;AACnF,CAAC"}
