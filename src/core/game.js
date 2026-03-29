@@ -89,6 +89,7 @@ export function createGame(playerNames, options) {
     knights: [],
     turnOrder: players.map(p => p.id),
     currentPlayerIdx: 0,
+    currentTurnOrderIdx: 0, // Track position in turnOrder array for snake-like ordering
     phase: 'setup',
     setupPhase: {
       round: 0,
@@ -399,8 +400,6 @@ export function applyAction(state, action) {
         resetMovementFlags(newState);
       }
 
-      newState.currentPlayerIdx = (newState.currentPlayerIdx + 1) % newState.players.length;
-
       // Handle setup phase progression
       if (newState.phase === 'setup') {
         const totalPlayers = newState.players.length;
@@ -411,8 +410,15 @@ export function applyAction(state, action) {
           newState.setupPhase.playerSettlementThisTurn = false;
           newState.setupPhase.playerRoadThisTurn = false;
 
+          // Move to next player in turn order (snake-like: 12344321)
+          newState.currentTurnOrderIdx = (newState.currentTurnOrderIdx + 1) % (totalPlayers * 2);
+
+          // Update currentPlayerIdx based on turnOrder
+          const playerIdAtTurnIdx = newState.turnOrder[newState.currentTurnOrderIdx % totalPlayers];
+          newState.currentPlayerIdx = newState.players.findIndex(p => p.id === playerIdAtTurnIdx);
+
           // After all players have taken a turn, move to next round
-          if (newState.currentPlayerIdx === 0) {
+          if (newState.currentTurnOrderIdx === 0) {
             newState.setupPhase.round++;
 
             // After 2 rounds (2 settlements and 2 roads per player), switch to main phase
@@ -420,13 +426,16 @@ export function applyAction(state, action) {
               newState.phase = 'main';
               delete newState.setupPhase;
             } else {
-              // Reverse turn order for round 1
+              // Reverse turn order for round 1 (snake-like)
               if (newState.setupPhase.round === 1) {
                 newState.turnOrder.reverse();
               }
             }
           }
         }
+      } else {
+        // Main phase: normal turn order
+        newState.currentPlayerIdx = (newState.currentPlayerIdx + 1) % newState.players.length;
       }
       break;
     }
