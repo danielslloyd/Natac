@@ -805,6 +805,34 @@
     let handleSize = 8; // pixels
     let edgeHighlightThreshold = 0.10; // 10% closer to edge midpoint triggers highlight
 
+    // AI Personalities with strategies
+    const aiPersonalities = {
+      'balanced': {
+        nickname: 'The Balanced Builder',
+        strategy: 'Focuses on steady expansion and fair trades',
+        tradeAcceptanceThreshold: 0.5, // Accept if trade value >= 50% of proposed value
+        tradePropensity: 0.3 // 30% chance to propose a trade
+      },
+      'aggressive': {
+        nickname: 'The Aggressive Raider',
+        strategy: 'Prioritizes resources and building, takes risky trades',
+        tradeAcceptanceThreshold: 0.3,
+        tradePropensity: 0.5
+      },
+      'diplomatic': {
+        nickname: 'The Diplomatic Negotiator',
+        strategy: 'Values relationships and fair exchanges, proposes beneficial trades',
+        tradeAcceptanceThreshold: 0.7,
+        tradePropensity: 0.7
+      },
+      'conservative': {
+        nickname: 'The Conservative Planner',
+        strategy: 'Avoids risky trades, carefully manages resources',
+        tradeAcceptanceThreshold: 0.8,
+        tradePropensity: 0.1
+      }
+    };
+
     // View state for zoom and pan
     let viewState = {
       zoom: 1.0,
@@ -864,6 +892,18 @@
       try {
         gameState = Game.createGame(playerNames, options);
         gameState.aiPlayerIndices = aiPlayerIndices;
+
+        // Assign AI personalities
+        const personalityKeys = Object.keys(aiPersonalities);
+        gameState.aiPersonalities = {};
+        let personalityIdx = 0;
+        aiPlayerIndices.forEach(idx => {
+          const personality = aiPersonalities[personalityKeys[personalityIdx % personalityKeys.length]];
+          gameState.aiPersonalities[idx] = personality;
+          gameState.players[idx].aiNickname = personality.nickname;
+          personalityIdx++;
+        });
+
         console.log('Game created:', gameState, 'AI players:', Array.from(aiPlayerIndices));
 
         document.getElementById('setupScreen').style.display = 'none';
@@ -1095,9 +1135,12 @@
         });
         resourceBlocksHTML += '</div>';
 
+        const displayName = gameState.aiPlayerIndices?.has(idx) ?
+          `${player.name} (${player.aiNickname || 'AI'})` : player.name;
+
         playerDiv.innerHTML = `
           <div class="player-color-dot" style="background: ${player.color || '#999'};"></div>
-          <span class="player-name">${player.name}</span>
+          <span class="player-name">${displayName}</span>
           <span class="player-stats">VP:${player.victoryPoints}</span>
         `;
 
@@ -1564,63 +1607,186 @@
 
       // In setup phase: place settlement and road
       if (gameState.phase === 'setup') {
-        // Try to place a settlement
-        const validNodes = gameState.nodes.filter(n => {
-          const validation = Game.validateAction(gameState, {
-            type: 'placeSettlement',
-            playerId: currentPlayer.id,
-            payload: { nodeId: n.id }
-          });
-          return validation.ok;
-        });
+        const hasSettlement = gameState.setupPhase.playerSettlementThisTurn;
+        const hasRoad = gameState.setupPhase.playerRoadThisTurn;
 
-        if (validNodes.length > 0 && !gameState.setupPhase.playerSettlementThisTurn) {
-          const node = validNodes[Math.floor(Math.random() * validNodes.length)];
-          gameState = Game.applyAction(gameState, {
-            type: 'placeSettlement',
-            playerId: currentPlayer.id,
-            payload: { nodeId: node.id }
-          });
-          updateUI();
-          renderMap();
+        // If both placed, auto-end turn
+        if (hasSettlement && hasRoad) {
+          setTimeout(handleEndTurn, 300);
           return;
+        }
+
+        // Try to place a settlement
+        if (!hasSettlement) {
+          const validNodes = gameState.nodes.filter(n => {
+            const validation = Game.validateAction(gameState, {
+              type: 'placeSettlement',
+              playerId: currentPlayer.id,
+              payload: { nodeId: n.id }
+            });
+            return validation.ok;
+          });
+
+          if (validNodes.length > 0) {
+            const node = validNodes[Math.floor(Math.random() * validNodes.length)];
+            gameState = Game.applyAction(gameState, {
+              type: 'placeSettlement',
+              playerId: currentPlayer.id,
+              payload: { nodeId: node.id }
+            });
+            updateUI();
+            renderMap();
+            // Continue to place road
+            setTimeout(executeAITurn, 400);
+            return;
+          }
         }
 
         // Try to place a road
-        const validEdges = gameState.edges.filter(e => {
-          const validation = Game.validateAction(gameState, {
-            type: 'placeRoad',
-            playerId: currentPlayer.id,
-            payload: { edgeId: e.id }
+        if (hasSettlement && !hasRoad) {
+          const validEdges = gameState.edges.filter(e => {
+            const validation = Game.validateAction(gameState, {
+              type: 'placeRoad',
+              playerId: currentPlayer.id,
+              payload: { edgeId: e.id }
+            });
+            return validation.ok;
           });
-          return validation.ok;
-        });
 
-        if (validEdges.length > 0 && gameState.setupPhase.playerSettlementThisTurn && !gameState.setupPhase.playerRoadThisTurn) {
-          const edge = validEdges[Math.floor(Math.random() * validEdges.length)];
-          gameState = Game.applyAction(gameState, {
-            type: 'placeRoad',
-            playerId: currentPlayer.id,
-            payload: { edgeId: edge.id }
-          });
-          updateUI();
-          renderMap();
-          return;
-        }
-
-        // End turn if both placed
-        if (gameState.setupPhase.playerSettlementThisTurn && gameState.setupPhase.playerRoadThisTurn) {
-          handleEndTurn();
+          if (validEdges.length > 0) {
+            const edge = validEdges[Math.floor(Math.random() * validEdges.length)];
+            gameState = Game.applyAction(gameState, {
+              type: 'placeRoad',
+              playerId: currentPlayer.id,
+              payload: { edgeId: edge.id }
+            });
+            updateUI();
+            renderMap();
+            // Both placed, will auto-end on next call
+            setTimeout(executeAITurn, 400);
+            return;
+          }
         }
       }
-      // In main phase: just end turn (or could add trading logic later)
+      // In main phase: propose trades and end turn
       else {
-        // Random chance to propose trade
-        if (Math.random() < 0.3) {
-          // AI proposes random trade (simplified)
+        // Process incoming trade responses first
+        processAITradeResponses();
+
+        const personality = gameState.aiPersonalities[gameState.currentPlayerIdx];
+        if (personality && Math.random() < personality.tradePropensity) {
+          proposeAITrade(currentPlayer);
+          updateUI();
+          updateTradesList();
         }
         setTimeout(handleEndTurn, 500);
       }
+    }
+
+    function proposeAITrade(aiPlayer) {
+      // Find trading opportunities (simplified - propose a random trade)
+      const myResources = aiPlayer.resources;
+      const hasMultiple = Object.entries(myResources).filter(([res, count]) => res !== 'desert' && count >= 2).length > 0;
+
+      if (!hasMultiple) return; // Don't propose if no duplicate resources
+
+      // Simple: offer 1 of a duplicate resource, request 1 of a missing resource
+      const resourceTypes = ['ore', 'sheep', 'wood', 'brick', 'wheat'];
+      const offering = resourceTypes.find(res => myResources[res] >= 2);
+      const requesting = resourceTypes.find(res => myResources[res] === 0);
+
+      if (offering && requesting) {
+        try {
+          const action = {
+            type: 'createTradeProposal',
+            playerId: aiPlayer.id,
+            payload: {
+              targetId: null, // Open trade
+              offering: { current: { [offering]: 1, ore: 0, sheep: 0, wood: 0, brick: 0, wheat: 0, desert: 0 } },
+              requesting: { current: { [requesting]: 1, ore: 0, sheep: 0, wood: 0, brick: 0, wheat: 0, desert: 0 } }
+            }
+          };
+          gameState = Game.applyAction(gameState, action);
+          updateUI();
+          updateTradesList();
+        } catch (e) {
+          // Trade proposal failed, continue
+        }
+      }
+    }
+
+    function evaluateTradeForAI(tradeId, aiPlayer) {
+      const trade = gameState.tradeProposals.find(t => t.id === tradeId);
+      if (!trade) return false;
+
+      const personality = gameState.aiPersonalities[gameState.players.indexOf(aiPlayer)];
+      if (!personality) return false;
+
+      // Calculate trade value (simple: count resources)
+      const offering = (trade.offering.current.ore || 0) + (trade.offering.current.sheep || 0) +
+                       (trade.offering.current.wood || 0) + (trade.offering.current.brick || 0) +
+                       (trade.offering.current.wheat || 0);
+      const requesting = (trade.requesting.current.ore || 0) + (trade.requesting.current.sheep || 0) +
+                         (trade.requesting.current.wood || 0) + (trade.requesting.current.brick || 0) +
+                         (trade.requesting.current.wheat || 0);
+
+      // If they're receiving more than they're giving, likely good
+      const tradeValue = requesting / Math.max(1, offering);
+
+      // Check if AI player can afford to give what they're offering
+      const canAfford = (trade.offering.current.ore || 0) <= aiPlayer.resources.ore &&
+                        (trade.offering.current.sheep || 0) <= aiPlayer.resources.sheep &&
+                        (trade.offering.current.wood || 0) <= aiPlayer.resources.wood &&
+                        (trade.offering.current.brick || 0) <= aiPlayer.resources.brick &&
+                        (trade.offering.current.wheat || 0) <= aiPlayer.resources.wheat;
+
+      if (!canAfford) return false;
+
+      // Accept if trade value meets threshold
+      return tradeValue >= personality.tradeAcceptanceThreshold;
+    }
+
+    function processAITradeResponses() {
+      if (!gameState.tradeProposals || gameState.tradeProposals.length === 0) return;
+
+      gameState.tradeProposals.forEach(trade => {
+        if (trade.status !== 'pending') return;
+
+        // Check each player (except proposer) if they're AI
+        gameState.players.forEach((player, idx) => {
+          if (player.id === trade.proposerId) return;
+          if (!trade.targetId || trade.targetId === player.id) {
+            // This player is a potential acceptor
+            if (gameState.aiPlayerIndices.has(idx)) {
+              // AI should respond
+              if (!trade.acceptedBy.includes(player.id)) {
+                const shouldAccept = evaluateTradeForAI(trade.id, player);
+                if (shouldAccept) {
+                  try {
+                    gameState = Game.applyAction(gameState, {
+                      type: 'acceptTradeProposal',
+                      playerId: player.id,
+                      payload: { tradeId: trade.id }
+                    });
+                  } catch (e) {
+                    // Trade acceptance failed
+                  }
+                } else {
+                  try {
+                    gameState = Game.applyAction(gameState, {
+                      type: 'declineTradeProposal',
+                      playerId: player.id,
+                      payload: { tradeId: trade.id }
+                    });
+                  } catch (e) {
+                    // Trade decline failed
+                  }
+                }
+              }
+            }
+          }
+        });
+      });
     }
 
     function handleEndTurn() {
