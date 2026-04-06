@@ -810,26 +810,34 @@
       'balanced': {
         nickname: 'The Balanced Builder',
         strategy: 'Focuses on steady expansion and fair trades',
-        tradeAcceptanceThreshold: 0.5, // Accept if trade value >= 50% of proposed value
-        tradePropensity: 0.3 // 30% chance to propose a trade
+        tradeAcceptanceThreshold: 0.5,
+        tradePropensity: 0.3,
+        favoriteResource: 'wheat',
+        resourceWeights: { ore: 1.0, sheep: 1.0, wood: 1.0, brick: 1.0, wheat: 1.4 }
       },
       'aggressive': {
         nickname: 'The Aggressive Raider',
         strategy: 'Prioritizes resources and building, takes risky trades',
         tradeAcceptanceThreshold: 0.3,
-        tradePropensity: 0.5
+        tradePropensity: 0.5,
+        favoriteResource: 'ore',
+        resourceWeights: { ore: 1.4, sheep: 1.0, wood: 1.0, brick: 1.0, wheat: 1.0 }
       },
       'diplomatic': {
         nickname: 'The Diplomatic Negotiator',
         strategy: 'Values relationships and fair exchanges, proposes beneficial trades',
         tradeAcceptanceThreshold: 0.7,
-        tradePropensity: 0.7
+        tradePropensity: 0.7,
+        favoriteResource: 'sheep',
+        resourceWeights: { ore: 1.0, sheep: 1.4, wood: 1.0, brick: 1.0, wheat: 1.0 }
       },
       'conservative': {
         nickname: 'The Conservative Planner',
         strategy: 'Avoids risky trades, carefully manages resources',
         tradeAcceptanceThreshold: 0.8,
-        tradePropensity: 0.1
+        tradePropensity: 0.1,
+        favoriteResource: 'brick',
+        resourceWeights: { ore: 1.0, sheep: 1.0, wood: 1.0, brick: 1.4, wheat: 1.0 }
       }
     };
 
@@ -898,7 +906,8 @@
         gameState.aiPersonalities = {};
         let personalityIdx = 0;
         aiPlayerIndices.forEach(idx => {
-          const personality = aiPersonalities[personalityKeys[personalityIdx % personalityKeys.length]];
+          const base = aiPersonalities[personalityKeys[personalityIdx % personalityKeys.length]];
+          const personality = { ...base, cityBias: Math.random() };
           gameState.aiPersonalities[idx] = personality;
           gameState.players[idx].aiNickname = personality.nickname;
           personalityIdx++;
@@ -1233,11 +1242,28 @@
           ctx.lineWidth = 1 * iz;
           ctx.stroke();
 
-          ctx.fillStyle = '#000';
+          const isHotNumber = tile.diceNumber === 6 || tile.diceNumber === 8;
+          const numColor = tile.robberPresent ? '#555' : (isHotNumber ? '#c00' : '#000');
+          const dotCount = 6 - Math.abs(7 - tile.diceNumber);
+
+          // Draw number shifted up to make room for dots
+          ctx.fillStyle = numColor;
           ctx.font = `bold ${10 * iz}px Arial`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(tile.diceNumber.toString(), center[0], center[1]);
+          ctx.fillText(tile.diceNumber.toString(), center[0], center[1] - 2 * iz);
+
+          // Draw dots below the number proportional to roll probability
+          const dotR = 1.0 * iz;
+          const dotSpacing = 2.6 * iz;
+          const dotsStartX = center[0] - ((dotCount - 1) / 2) * dotSpacing;
+          const dotsY = center[1] + 3.5 * iz;
+          ctx.fillStyle = numColor;
+          for (let d = 0; d < dotCount; d++) {
+            ctx.beginPath();
+            ctx.arc(dotsStartX + d * dotSpacing, dotsY, dotR, 0, Math.PI * 2);
+            ctx.fill();
+          }
         }
 
         // Draw robber indicator (R inside tile center circle)
@@ -1628,7 +1654,19 @@
           });
 
           if (validNodes.length > 0) {
-            const node = validNodes[Math.floor(Math.random() * validNodes.length)];
+            // Score each node by the sum of dot-counts of its adjacent tiles
+            const tileMap = new Map(gameState.tiles.map(t => [t.id, t]));
+            const scoredNodes = validNodes.map(n => {
+              const score = n.tiles.reduce((sum, tileId) => {
+                const t = tileMap.get(tileId);
+                if (!t || !t.diceNumber) return sum;
+                return sum + (6 - Math.abs(7 - t.diceNumber));
+              }, 0);
+              return { node: n, score };
+            });
+            const bestScore = Math.max(...scoredNodes.map(s => s.score));
+            const bestNodes = scoredNodes.filter(s => s.score === bestScore);
+            const { node } = bestNodes[Math.floor(Math.random() * bestNodes.length)];
             gameState = Game.applyAction(gameState, {
               type: 'placeSettlement',
               playerId: currentPlayer.id,
@@ -1668,7 +1706,7 @@
           }
         }
       }
-      // In main phase: propose trades and end turn
+      // In main phase: propose trades, try to build, then end turn
       else {
         // Process incoming trade responses first
         processAITradeResponses();
@@ -1679,6 +1717,49 @@
           updateUI();
           updateTradesList();
         }
+
+        // Try to build based on city/settlement bias
+        const cityBias = personality?.cityBias ?? 0.5;
+        const prefersCity = Math.random() < cityBias;
+        const tileMap = new Map(gameState.tiles.map(t => [t.id, t]));
+
+        const tryCity = () => {
+          const validNodes = gameState.nodes.filter(n =>
+            Game.validateAction(gameState, { type: 'upgradeToCity', playerId: currentPlayer.id, payload: { nodeId: n.id } }).ok
+          );
+          if (validNodes.length === 0) return false;
+          const node = validNodes[Math.floor(Math.random() * validNodes.length)];
+          gameState = Game.applyAction(gameState, { type: 'upgradeToCity', playerId: currentPlayer.id, payload: { nodeId: node.id } });
+          updateUI(); renderMap();
+          return true;
+        };
+
+        const trySettlement = () => {
+          const validNodes = gameState.nodes.filter(n =>
+            Game.validateAction(gameState, { type: 'placeSettlement', playerId: currentPlayer.id, payload: { nodeId: n.id } }).ok
+          );
+          if (validNodes.length === 0) return false;
+          const scored = validNodes.map(n => ({
+            node: n,
+            score: n.tiles.reduce((s, tid) => {
+              const t = tileMap.get(tid);
+              return (t?.diceNumber) ? s + (6 - Math.abs(7 - t.diceNumber)) : s;
+            }, 0)
+          }));
+          const best = Math.max(...scored.map(s => s.score));
+          const candidates = scored.filter(s => s.score === best);
+          const { node } = candidates[Math.floor(Math.random() * candidates.length)];
+          gameState = Game.applyAction(gameState, { type: 'placeSettlement', playerId: currentPlayer.id, payload: { nodeId: node.id } });
+          updateUI(); renderMap();
+          return true;
+        };
+
+        if (prefersCity) {
+          if (!tryCity()) trySettlement();
+        } else {
+          if (!trySettlement()) tryCity();
+        }
+
         setTimeout(handleEndTurn, 500);
       }
     }
@@ -1690,10 +1771,15 @@
 
       if (!hasMultiple) return; // Don't propose if no duplicate resources
 
-      // Simple: offer 1 of a duplicate resource, request 1 of a missing resource
       const resourceTypes = ['ore', 'sheep', 'wood', 'brick', 'wheat'];
+      const aiIdx = gameState.players.indexOf(aiPlayer);
+      const personality = gameState.aiPersonalities[aiIdx];
       const offering = resourceTypes.find(res => myResources[res] >= 2);
-      const requesting = resourceTypes.find(res => myResources[res] === 0);
+      // Prefer requesting the favorite resource if it's missing, otherwise any missing resource
+      const missingResources = resourceTypes.filter(res => myResources[res] === 0 && res !== offering);
+      const requesting = (personality?.favoriteResource && missingResources.includes(personality.favoriteResource))
+        ? personality.favoriteResource
+        : missingResources[0];
 
       if (offering && requesting) {
         try {
@@ -1722,27 +1808,18 @@
       const personality = gameState.aiPersonalities[gameState.players.indexOf(aiPlayer)];
       if (!personality) return false;
 
-      // Calculate trade value (simple: count resources)
-      const offering = (trade.offering.current.ore || 0) + (trade.offering.current.sheep || 0) +
-                       (trade.offering.current.wood || 0) + (trade.offering.current.brick || 0) +
-                       (trade.offering.current.wheat || 0);
-      const requesting = (trade.requesting.current.ore || 0) + (trade.requesting.current.sheep || 0) +
-                         (trade.requesting.current.wood || 0) + (trade.requesting.current.brick || 0) +
-                         (trade.requesting.current.wheat || 0);
-
-      // If they're receiving more than they're giving, likely good
-      const tradeValue = requesting / Math.max(1, offering);
-
-      // Check if AI player can afford to give what they're offering
-      const canAfford = (trade.offering.current.ore || 0) <= aiPlayer.resources.ore &&
-                        (trade.offering.current.sheep || 0) <= aiPlayer.resources.sheep &&
-                        (trade.offering.current.wood || 0) <= aiPlayer.resources.wood &&
-                        (trade.offering.current.brick || 0) <= aiPlayer.resources.brick &&
-                        (trade.offering.current.wheat || 0) <= aiPlayer.resources.wheat;
-
+      // Check if AI player can afford to give what's being requested from them
+      const resourceTypes = ['ore', 'sheep', 'wood', 'brick', 'wheat'];
+      const canAfford = resourceTypes.every(r => (trade.requesting.current[r] || 0) <= aiPlayer.resources[r]);
       if (!canAfford) return false;
 
-      // Accept if trade value meets threshold
+      // Weight resources by personality preference: favorite resource is harder to give up, better to receive
+      const weights = personality.resourceWeights || { ore: 1, sheep: 1, wood: 1, brick: 1, wheat: 1 };
+      const valueReceived = resourceTypes.reduce((sum, r) => sum + (trade.offering.current[r] || 0) * weights[r], 0);
+      const valueGiven    = resourceTypes.reduce((sum, r) => sum + (trade.requesting.current[r] || 0) * weights[r], 0);
+
+      // Accept if what we receive is worth at least (threshold) of what we give
+      const tradeValue = valueReceived / Math.max(0.01, valueGiven);
       return tradeValue >= personality.tradeAcceptanceThreshold;
     }
 
