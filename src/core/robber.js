@@ -23,6 +23,14 @@ export function handleRobberActivation(state) {
     }
   });
 
+  // Preserve non-serializable properties (Sets, etc.) that were lost in JSON stringify/parse
+  if (state.aiPlayerIndices) {
+    newState.aiPlayerIndices = state.aiPlayerIndices;
+  }
+  if (state.aiPersonalities) {
+    newState.aiPersonalities = state.aiPersonalities;
+  }
+
   return newState;
 }
 

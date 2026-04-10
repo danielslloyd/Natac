@@ -3,6 +3,18 @@
 import { Resource } from '../models/types.js';
 import { generateId } from './utils.js';
 
+// Helper to clone state while preserving non-serializable properties
+function cloneStateWithPreservation(state) {
+  const cloned = JSON.parse(JSON.stringify(state));
+  if (state.aiPlayerIndices) {
+    cloned.aiPlayerIndices = state.aiPlayerIndices;
+  }
+  if (state.aiPersonalities) {
+    cloned.aiPersonalities = state.aiPersonalities;
+  }
+  return cloned;
+}
+
 function isValidResourceOffer(offer, allowFutures) {
   const current = offer.current;
   const futures = offer.futures || {};
@@ -89,7 +101,7 @@ export function createTradeProposal(state, proposerId, targetId, offering, reque
     throw new Error(`Invalid trade proposal: ${validation.reason}`);
   }
 
-  const newState = JSON.parse(JSON.stringify(state));
+  const newState = cloneStateWithPreservation(state);
 
   const proposal = {
     id: generateId('trade'),
@@ -148,7 +160,7 @@ export function acceptTradeProposal(state, tradeId, acceptorId) {
     throw new Error(`Cannot accept trade: ${validation.reason}`);
   }
 
-  const newState = JSON.parse(JSON.stringify(state));
+  const newState = cloneStateWithPreservation(state);
   const proposal = newState.tradeProposals.find(t => t.id === tradeId);
 
   proposal.acceptedBy.push(acceptorId);
@@ -158,7 +170,7 @@ export function acceptTradeProposal(state, tradeId, acceptorId) {
 }
 
 export function declineTradeProposal(state, tradeId, declinerId) {
-  const newState = JSON.parse(JSON.stringify(state));
+  const newState = cloneStateWithPreservation(state);
   const proposal = newState.tradeProposals.find(t => t.id === tradeId);
 
   if (!proposal || proposal.status !== 'pending') {
@@ -184,7 +196,7 @@ export function declineTradeProposal(state, tradeId, declinerId) {
 }
 
 export function cancelTradeProposal(state, tradeId, playerId) {
-  const newState = JSON.parse(JSON.stringify(state));
+  const newState = cloneStateWithPreservation(state);
   const proposal = newState.tradeProposals.find(t => t.id === tradeId);
 
   if (!proposal || proposal.proposerId !== playerId) {
@@ -244,7 +256,7 @@ export function executeTrade(state, tradeId, acceptorId) {
     throw new Error(`Cannot execute trade: ${validation.reason}`);
   }
 
-  const newState = JSON.parse(JSON.stringify(state));
+  const newState = cloneStateWithPreservation(state);
   const proposal = newState.tradeProposals.find(t => t.id === tradeId);
 
   const selectedAcceptorId = acceptorId || proposal.acceptedBy[0];
