@@ -1234,9 +1234,10 @@
           center[0] /= tile.polygonPoints.length;
           center[1] /= tile.polygonPoints.length;
 
+          const coinR = (handleSize * 1.125) * iz;
           ctx.fillStyle = tile.robberPresent ? '#e44' : 'white';
           ctx.beginPath();
-          ctx.arc(center[0], center[1], 9 * iz, 0, Math.PI * 2);
+          ctx.arc(center[0], center[1], coinR, 0, Math.PI * 2);
           ctx.fill();
           ctx.strokeStyle = '#333';
           ctx.lineWidth = 1 * iz;
@@ -1248,14 +1249,14 @@
 
           // Draw number shifted up to make room for dots
           ctx.fillStyle = numColor;
-          ctx.font = `bold ${10 * iz}px Arial`;
+          ctx.font = `bold ${Math.round(handleSize * 1.25) * iz}px Arial`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText(tile.diceNumber.toString(), center[0], center[1] - 2 * iz);
 
           // Draw dots below the number proportional to roll probability
-          const dotR = 1.0 * iz;
-          const dotSpacing = 2.6 * iz;
+          const dotR = (handleSize / 8) * iz;
+          const dotSpacing = (handleSize / 3.08) * iz;
           const dotsStartX = center[0] - ((dotCount - 1) / 2) * dotSpacing;
           const dotsY = center[1] + 3.5 * iz;
           ctx.fillStyle = numColor;
@@ -1575,6 +1576,14 @@
           gameState = Game.applyAction(gameState, action);
           updateUI();
           renderMap();
+
+          // In setup phase: auto-end turn if both settlement and road placed
+          if (gameState.phase === 'setup' &&
+              gameState.setupPhase.playerSettlementThisTurn &&
+              gameState.setupPhase.playerRoadThisTurn &&
+              !gameState.aiPlayerIndices?.has(gameState.currentPlayerIdx)) {
+            setTimeout(handleEndTurn, 300);
+          }
         } else {
           alert('Cannot place settlement: ' + validation.reason);
         }
@@ -1595,6 +1604,14 @@
         gameState = Game.applyAction(gameState, action);
         updateUI();
         renderMap();
+
+        // In setup phase: auto-end turn if both settlement and road placed
+        if (gameState.phase === 'setup' &&
+            gameState.setupPhase.playerSettlementThisTurn &&
+            gameState.setupPhase.playerRoadThisTurn &&
+            !gameState.aiPlayerIndices?.has(gameState.currentPlayerIdx)) {
+          setTimeout(handleEndTurn, 300);
+        }
       } else {
         alert('Cannot place road: ' + validation.reason);
       }

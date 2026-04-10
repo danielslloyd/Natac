@@ -240,26 +240,26 @@ function validatePlaceRoad(state, player, edgeId) {
   }
 
   // Must connect to player's existing road or settlement
-  if (state.phase === 'main' || player.roads.length > 0) {
-    const nodeAHasConnection =
-      state.nodes.find(n => n.id === edge.nodeA)?.occupant?.playerId === player.id ||
-      state.edges.some(
-        e => e.id !== edgeId &&
-             (e.nodeA === edge.nodeA || e.nodeB === edge.nodeA) &&
-             e.roadOwner === player.id
-      );
+  // In setup phase: must connect to the settlement just placed
+  // In main phase: must connect to existing network
+  const nodeAHasConnection =
+    state.nodes.find(n => n.id === edge.nodeA)?.occupant?.playerId === player.id ||
+    state.edges.some(
+      e => e.id !== edgeId &&
+           (e.nodeA === edge.nodeA || e.nodeB === edge.nodeA) &&
+           e.roadOwner === player.id
+    );
 
-    const nodeBHasConnection =
-      state.nodes.find(n => n.id === edge.nodeB)?.occupant?.playerId === player.id ||
-      state.edges.some(
-        e => e.id !== edgeId &&
-             (e.nodeA === edge.nodeB || e.nodeB === edge.nodeB) &&
-             e.roadOwner === player.id
-      );
+  const nodeBHasConnection =
+    state.nodes.find(n => n.id === edge.nodeB)?.occupant?.playerId === player.id ||
+    state.edges.some(
+      e => e.id !== edgeId &&
+           (e.nodeA === edge.nodeB || e.nodeB === edge.nodeB) &&
+           e.roadOwner === player.id
+    );
 
-    if (!nodeAHasConnection && !nodeBHasConnection) {
-      return { ok: false, reason: 'Road must connect to your network' };
-    }
+  if (!nodeAHasConnection && !nodeBHasConnection) {
+    return { ok: false, reason: 'Road must connect to your network' };
   }
 
   // Check resources in main phase
