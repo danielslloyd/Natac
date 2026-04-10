@@ -93,10 +93,13 @@ export function createGame(playerNames, options) {
     phase: 'setup',
     setupPhase: {
       round: 0,
+      totalRounds: Math.ceil(mapData.tiles.length / 15), // N/15 rounds, rounded up
       settlementsPlaced: 0,
       roadsPlaced: 0,
       playerSettlementThisTurn: false,
-      playerRoadThisTurn: false
+      playerRoadThisTurn: false,
+      lastSettlementNodeId: null, // Track which settlement was just placed for road validation
+      reverseOrder: false // Track if we should reverse turn order this round
     },
     diceHistory: [],
     robberTileId,
@@ -239,27 +242,35 @@ function validatePlaceRoad(state, player, edgeId) {
     return { ok: false, reason: 'Already placed a road this turn' };
   }
 
-  // Must connect to player's existing road or settlement
-  // In setup phase: must connect to the settlement just placed
+  // In setup phase: road must connect to the settlement just placed
+  if (state.phase === 'setup') {
+    const lastSettlementId = state.setupPhase?.lastSettlementNodeId;
+    if (lastSettlementId && edge.nodeA !== lastSettlementId && edge.nodeB !== lastSettlementId) {
+      return { ok: false, reason: 'Road must connect to the settlement just placed' };
+    }
+  }
+
   // In main phase: must connect to existing network
-  const nodeAHasConnection =
-    state.nodes.find(n => n.id === edge.nodeA)?.occupant?.playerId === player.id ||
-    state.edges.some(
-      e => e.id !== edgeId &&
-           (e.nodeA === edge.nodeA || e.nodeB === edge.nodeA) &&
-           e.roadOwner === player.id
-    );
+  if (state.phase === 'main') {
+    const nodeAHasConnection =
+      state.nodes.find(n => n.id === edge.nodeA)?.occupant?.playerId === player.id ||
+      state.edges.some(
+        e => e.id !== edgeId &&
+             (e.nodeA === edge.nodeA || e.nodeB === edge.nodeA) &&
+             e.roadOwner === player.id
+      );
 
-  const nodeBHasConnection =
-    state.nodes.find(n => n.id === edge.nodeB)?.occupant?.playerId === player.id ||
-    state.edges.some(
-      e => e.id !== edgeId &&
-           (e.nodeA === edge.nodeB || e.nodeB === edge.nodeB) &&
-           e.roadOwner === player.id
-    );
+    const nodeBHasConnection =
+      state.nodes.find(n => n.id === edge.nodeB)?.occupant?.playerId === player.id ||
+      state.edges.some(
+        e => e.id !== edgeId &&
+             (e.nodeA === edge.nodeB || e.nodeB === edge.nodeB) &&
+             e.roadOwner === player.id
+      );
 
-  if (!nodeAHasConnection && !nodeBHasConnection) {
-    return { ok: false, reason: 'Road must connect to your network' };
+    if (!nodeAHasConnection && !nodeBHasConnection) {
+      return { ok: false, reason: 'Road must connect to your network' };
+    }
   }
 
   // Check resources in main phase
@@ -342,6 +353,7 @@ export function applyAction(state, action) {
       if (newState.phase === 'setup') {
         newState.setupPhase.playerSettlementThisTurn = true;
         newState.setupPhase.settlementsPlaced++;
+        newState.setupPhase.lastSettlementNodeId = nodeId; // Track for road validation
         if (newState.setupPhase.round === 1) {
           node.tiles.forEach(tileId => {
             const tile = newState.tiles.find(t => t.id === tileId);
@@ -409,29 +421,32 @@ export function applyAction(state, action) {
           // Reset flags for next player
           newState.setupPhase.playerSettlementThisTurn = false;
           newState.setupPhase.playerRoadThisTurn = false;
+          newState.setupPhase.lastSettlementNodeId = null;
 
-          // Move to next player in turn order (snake-like: 12344321)
-          newState.currentTurnOrderIdx = (newState.currentTurnOrderIdx + 1) % (totalPlayers * 2);
-
-          // Update currentPlayerIdx based on turnOrder
-          const playerIdAtTurnIdx = newState.turnOrder[newState.currentTurnOrderIdx % totalPlayers];
-          newState.currentPlayerIdx = newState.players.findIndex(p => p.id === playerIdAtTurnIdx);
+          // Move to next player
+          newState.currentTurnOrderIdx++;
 
           // After all players have taken a turn, move to next round
-          if (newState.currentTurnOrderIdx === 0) {
+          if (newState.currentTurnOrderIdx >= totalPlayers) {
+            newState.currentTurnOrderIdx = 0;
             newState.setupPhase.round++;
 
-            // After 2 rounds (2 settlements and 2 roads per player), switch to main phase
-            if (newState.setupPhase.round >= 2) {
+            // Check if we've completed all setup rounds
+            const totalRounds = newState.setupPhase.totalRounds;
+            if (newState.setupPhase.round >= totalRounds) {
               newState.phase = 'main';
               delete newState.setupPhase;
             } else {
-              // Reverse turn order for round 1 (snake-like)
-              if (newState.setupPhase.round === 1) {
-                newState.turnOrder.reverse();
-              }
+              // Reverse turn order for snake-like progression (every round after round 0)
+              newState.turnOrder.reverse();
+              // Adjust currentTurnOrderIdx after reversal: it should point to the first player
+              newState.currentTurnOrderIdx = 0;
             }
           }
+
+          // Update currentPlayerIdx based on turnOrder and currentTurnOrderIdx
+          const playerIdAtTurnIdx = newState.turnOrder[newState.currentTurnOrderIdx];
+          newState.currentPlayerIdx = newState.players.findIndex(p => p.id === playerIdAtTurnIdx);
         }
       } else {
         // Main phase: normal turn order
