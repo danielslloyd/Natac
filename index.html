@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Natac - Catan-like Polygon Game</title>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap');
+
     * {
       margin: 0;
       padding: 0;
@@ -1162,13 +1164,6 @@
         `${currentPlayer.name}'s turn (${gameState.phase === 'setup' ? 'Setup' : 'Main'} phase)`;
 
       // Setup event listeners
-      const rollBtn = document.getElementById('rollDiceBtn');
-      if (gameState.phase === 'setup') {
-        rollBtn.style.display = 'none';
-      } else {
-        rollBtn.style.display = 'block';
-        rollBtn.onclick = handleRollDice;
-      }
       document.getElementById('endTurnBtn').onclick = handleEndTurn;
 
       // Setup slider listeners
@@ -1617,14 +1612,40 @@
       }
     }
 
-    function handleRollDice() {
-      if (gameState.phase === 'setup') {
-        alert('Cannot roll dice during setup phase');
-        return;
-      }
+    function displayDiceRoll(roll) {
+      // Simulate two d6 rolls (any combination that adds up to the total)
+      // For visual purposes, distribute the roll between two dice
+      const die1 = Math.min(6, Math.max(1, Math.floor(roll / 2)));
+      const die2 = roll - die1;
 
+      // Create visual dice with different colors
+      const diceHTML = `
+        <div style="display: flex; gap: 15px; align-items: center; justify-content: center; margin-top: 10px;">
+          <div style="
+            width: 60px; height: 60px;
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 32px; font-weight: bold; color: white;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+          ">${die1}</div>
+          <div style="
+            width: 60px; height: 60px;
+            background: linear-gradient(135deg, #4ecdc4 0%, #44a5a2 100%);
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 32px; font-weight: bold; color: white;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+          ">${die2}</div>
+          <div style="font-size: 24px; font-weight: bold; color: #333;">= ${roll}</div>
+        </div>
+      `;
+      document.getElementById('diceResult').innerHTML = diceHTML;
+    }
+
+    function handleRollDice() {
       const roll = Game.rollDice();
-      document.getElementById('diceResult').textContent = `🎲 Rolled: ${roll}`;
+      displayDiceRoll(roll);
 
       if (roll === 7) {
         gameState = Game.handleRobberActivation(gameState);
@@ -1899,7 +1920,7 @@
       if (gameState.phase === 'main') {
         setTimeout(() => {
           const roll = Game.rollDice();
-          document.getElementById('diceResult').textContent = `🎲 Rolled: ${roll}`;
+          displayDiceRoll(roll);
 
           if (roll === 7) {
             gameState = Game.handleRobberActivation(gameState);

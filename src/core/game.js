@@ -334,7 +334,7 @@ export function applyAction(state, action) {
   }
 
   // Clone state for immutability
-  const newState = JSON.parse(JSON.stringify(state));
+  let newState = JSON.parse(JSON.stringify(state));
   const player = newState.players.find(p => p.id === action.playerId);
 
   switch (action.type) {
