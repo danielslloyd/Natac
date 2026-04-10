@@ -1301,26 +1301,54 @@
       const nodeR = (handleSize / 2) * iz;
       gameState.nodes.forEach(node => {
         if (!node.location) return;
+
+        // Check if this node is blocked by the distance rule
+        const isBlocked = gameState.edges.some(edge => {
+          const otherNodeId = edge.nodeA === node.id ? edge.nodeB : (edge.nodeB === node.id ? edge.nodeA : null);
+          if (!otherNodeId) return false;
+          const otherNode = gameState.nodes.find(n => n.id === otherNodeId);
+          return otherNode?.occupant ? true : false;
+        });
+
         const isHovered = node.id === hoverState.nodeId;
 
-        ctx.beginPath();
-        if (node.occupant?.type === 'city') {
-          ctx.arc(node.location[0], node.location[1], nodeR * 1.6, 0, Math.PI * 2);
-        } else {
-          ctx.arc(node.location[0], node.location[1], isHovered ? nodeR * 1.3 : nodeR, 0, Math.PI * 2);
-        }
+        // Only draw handles for unblocked, unoccupied nodes
+        if (!isBlocked) {
+          ctx.beginPath();
+          if (node.occupant?.type === 'city') {
+            ctx.arc(node.location[0], node.location[1], nodeR * 1.6, 0, Math.PI * 2);
+          } else if (node.occupant?.type === 'settlement') {
+            ctx.arc(node.location[0], node.location[1], nodeR, 0, Math.PI * 2);
+          } else {
+            ctx.arc(node.location[0], node.location[1], isHovered ? nodeR * 1.3 : nodeR, 0, Math.PI * 2);
+          }
 
-        if (node.occupant) {
+          if (node.occupant) {
+            const owner = gameState.players.find(p => p.id === node.occupant.playerId);
+            ctx.fillStyle = owner?.color || '#000';
+          } else {
+            ctx.fillStyle = isHovered ? '#ddd' : 'white';
+          }
+
+          ctx.fill();
+          ctx.strokeStyle = isHovered ? '#000' : '#444';
+          ctx.lineWidth = 1.5 * iz;
+          ctx.stroke();
+        } else if (node.occupant) {
+          // Still draw occupied nodes, but not their handles
+          ctx.beginPath();
+          if (node.occupant?.type === 'city') {
+            ctx.arc(node.location[0], node.location[1], nodeR * 1.6, 0, Math.PI * 2);
+          } else {
+            ctx.arc(node.location[0], node.location[1], nodeR, 0, Math.PI * 2);
+          }
           const owner = gameState.players.find(p => p.id === node.occupant.playerId);
           ctx.fillStyle = owner?.color || '#000';
-        } else {
-          ctx.fillStyle = isHovered ? '#ddd' : 'white';
+          ctx.fill();
+          ctx.strokeStyle = '#000';
+          ctx.lineWidth = 1.5 * iz;
+          ctx.stroke();
         }
-
-        ctx.fill();
-        ctx.strokeStyle = isHovered ? '#000' : '#444';
-        ctx.lineWidth = 1.5 * iz;
-        ctx.stroke();
       });
 
       ctx.restore();
@@ -1912,6 +1940,10 @@
       };
 
       gameState = Game.applyAction(gameState, action);
+
+      // Remove pending trades (they don't carry over to the next turn)
+      gameState.tradeProposals = gameState.tradeProposals.filter(t => t.status !== 'pending');
+
       document.getElementById('diceResult').textContent = '';
       updateUI();
       renderMap();
@@ -2085,6 +2117,55 @@
         };
 
         gameState = Game.applyAction(gameState, action);
+
+        // Have AI players immediately evaluate and respond to the trade
+        const tradeId = gameState.tradeProposals[gameState.tradeProposals.length - 1].id;
+        gameState.players.forEach((player, idx) => {
+          if (player.id !== currentPlayer.id && gameState.aiPlayerIndices?.has(idx)) {
+            // AI player evaluates the trade
+            const shouldAccept = evaluateTradeForAI(tradeId, player);
+            if (shouldAccept) {
+              try {
+                gameState = Game.applyAction(gameState, {
+                  type: 'acceptTradeProposal',
+                  playerId: player.id,
+                  payload: { tradeId }
+                });
+              } catch (e) {
+                console.error('AI failed to accept trade:', e);
+              }
+            } else {
+              try {
+                gameState = Game.applyAction(gameState, {
+                  type: 'declineTradeProposal',
+                  playerId: player.id,
+                  payload: { tradeId }
+                });
+              } catch (e) {
+                console.error('AI failed to decline trade:', e);
+              }
+            }
+          }
+        });
+
+        // If trade is now accepted by an AI, execute it immediately
+        const trade = gameState.tradeProposals.find(t => t.id === tradeId);
+        if (trade && trade.status === 'accepted' && trade.acceptedBy.length > 0) {
+          setTimeout(() => {
+            try {
+              gameState = Game.applyAction(gameState, {
+                type: 'executeTrade',
+                playerId: currentPlayer.id,
+                payload: { tradeId }
+              });
+            } catch (e) {
+              console.error('Failed to execute trade:', e);
+            }
+            updateUI();
+            updateTradesList();
+          }, 300);
+        }
+
         document.getElementById('tradeModal').classList.remove('active');
         updateUI();
         updateTradesList();
