@@ -527,6 +527,14 @@ export function applyAction(state, action) {
     }
   }
 
+  // Preserve non-serializable properties (Sets, etc.) that were lost in JSON stringify/parse
+  if (state.aiPlayerIndices) {
+    newState.aiPlayerIndices = state.aiPlayerIndices;
+  }
+  if (state.aiPersonalities) {
+    newState.aiPersonalities = state.aiPersonalities;
+  }
+
   return newState;
 }
 
@@ -578,6 +586,14 @@ export function collectResources(state, diceRoll) {
   });
 
   newState.diceHistory.push(diceRoll);
+
+  // Preserve non-serializable properties (Sets, etc.) that were lost in JSON stringify/parse
+  if (state.aiPlayerIndices) {
+    newState.aiPlayerIndices = state.aiPlayerIndices;
+  }
+  if (state.aiPersonalities) {
+    newState.aiPersonalities = state.aiPersonalities;
+  }
 
   return newState;
 }
