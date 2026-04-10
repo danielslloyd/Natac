@@ -2068,7 +2068,7 @@
         updateUI();
         updateTradesList();
       } catch (error) {
-        alert('Error creating trade: ' + error.message);
+        console.error('Error creating trade:', error);
       }
     }
 
@@ -2181,7 +2181,7 @@
         updateUI();
         updateTradesList();
       } catch (error) {
-        alert('Error accepting trade: ' + error.message);
+        console.error('Error accepting trade:', error);
       }
     };
 
@@ -2197,7 +2197,7 @@
         updateUI();
         updateTradesList();
       } catch (error) {
-        alert('Error declining trade: ' + error.message);
+        console.error('Error declining trade:', error);
       }
     };
 
@@ -2213,7 +2213,7 @@
         updateUI();
         updateTradesList();
       } catch (error) {
-        alert('Error canceling trade: ' + error.message);
+        console.error('Error canceling trade:', error);
       }
     };
 
@@ -2228,7 +2228,7 @@
         updateUI();
         updateTradesList();
       } catch (error) {
-        alert('Error executing trade: ' + error.message);
+        console.error('Error executing trade:', error);
       }
     };
 

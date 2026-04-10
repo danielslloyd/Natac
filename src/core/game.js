@@ -506,39 +506,45 @@ export function applyAction(state, action) {
 
     // Trade proposal actions
     case 'createTradeProposal': {
-      return createTradeProposal(
+      newState = createTradeProposal(
         newState,
         action.playerId,
         action.payload.targetId,
         action.payload.offering,
         action.payload.requesting
       );
+      break;
     }
 
     case 'acceptTradeProposal': {
-      return acceptTradeProposal(newState, action.payload.tradeId, action.playerId);
+      newState = acceptTradeProposal(newState, action.payload.tradeId, action.playerId);
+      break;
     }
 
     case 'declineTradeProposal': {
-      return declineTradeProposal(newState, action.payload.tradeId, action.playerId);
+      newState = declineTradeProposal(newState, action.payload.tradeId, action.playerId);
+      break;
     }
 
     case 'cancelTradeProposal': {
-      return cancelTradeProposal(newState, action.payload.tradeId, action.playerId);
+      newState = cancelTradeProposal(newState, action.payload.tradeId, action.playerId);
+      break;
     }
 
     case 'executeTrade': {
-      return executeTrade(newState, action.payload.tradeId, action.payload.acceptorId);
+      newState = executeTrade(newState, action.payload.tradeId, action.payload.acceptorId);
+      break;
     }
 
     case 'createCounterOffer': {
-      return createCounterOffer(
+      newState = createCounterOffer(
         newState,
         action.payload.originalTradeId,
         action.playerId,
         action.payload.offering,
         action.payload.requesting
       );
+      break;
     }
   }
 
