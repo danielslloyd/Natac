@@ -2,6 +2,15 @@
 
 A flexible, rule-configurable implementation of a Settlers of Catan-like board game that runs on arbitrary polygonal tilings, not just hexagons. The game supports standard Catan mechanics while allowing maps built from 5/6/7-sided polygons with the core constraint that every vertex touches exactly 3 tiles (for interior vertices).
 
+## Game modes
+
+- **Settlement game** (`index.html`) — the Catan-like map builder described below.
+- **⚔️ Natac: War** (`combat.html`) — a **completely separate** Civ-V-inspired hex
+  combat game with era-based supply lines (Classical → Napoleonic → WW2). Units
+  need food, then ammo, then fuel, all delivered along length-costed supply
+  lines; land, sea and air units all move distinctly. See
+  [COMBAT_MODE.md](./COMBAT_MODE.md).
+
 ## Features
 
 ### Map Generation
