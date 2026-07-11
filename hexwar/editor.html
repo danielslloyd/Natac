@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>hexwar — level editor</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.45 system-ui, sans-serif; background: #f5f4f0; color: #222;
+         display: flex; height: 100vh; overflow: hidden; }
+  #panel { width: 340px; min-width: 340px; padding: 12px; overflow-y: auto;
+           background: #fff; border-right: 1px solid #ddd; }
+  #panel h1 { font-size: 16px; margin: 0 0 8px; }
+  #panel h1 a { font-size: 11px; font-weight: normal; }
+  #panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+              color: #777; margin: 14px 0 4px; }
+  select, input, button { font: inherit; margin: 2px 0; }
+  input[type=number] { width: 60px; }
+  input[type=range] { width: 130px; vertical-align: middle; }
+  button { cursor: pointer; padding: 3px 10px; border: 1px solid #999; background: #f2f2f2;
+           border-radius: 3px; }
+  button:hover { background: #e6e6e6; }
+  button.primary { background: #2b6cb0; color: #fff; border-color: #2b6cb0; }
+  button.active { background: #2b6cb0; color: #fff; border-color: #1c4f85; }
+  .toolbtn { display: inline-flex; align-items: center; gap: 4px; }
+  .swatch { width: 13px; height: 13px; display: inline-block; border-radius: 2px; border: 1px solid #0004; vertical-align: -2px; }
+  #hint { white-space: pre-wrap; background: #f7f7f2; border: 1px solid #e2e2d8;
+          padding: 8px; font-size: 12px; border-radius: 3px; }
+  #status { font-weight: 600; margin: 6px 0; min-height: 18px; }
+  #tileInfo { white-space: pre-wrap; font-family: ui-monospace, monospace;
+          font-size: 11px; background: #fafafa; border: 1px solid #eee; padding: 6px;
+          min-height: 20px; border-radius: 3px; }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 5px 0; }
+  label { user-select: none; }
+  #stage { flex: 1; position: relative; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
+  #fileInput { display: none; }
+</style>
+</head>
+<body>
+<div id="panel">
+  <h1>hexwar level editor <a href="index.html">→ play</a></h1>
+  <div class="row" id="variantTabs">
+    <button data-variant="stretch">Stretch</button>
+    <button data-variant="hexiso">Hex Iso</button>
+    <button data-variant="civ">Civ</button>
+  </div>
+
+  <h2>New map</h2>
+  <div class="row" id="newMapOpts"></div>
+  <div class="row">
+    <button id="newMapBtn" class="primary">Generate new</button>
+    <button id="randomizeBtn">Randomize</button>
+  </div>
+
+  <h2>Tool</h2>
+  <div class="row" id="toolOpts"></div>
+  <div class="row" id="brushRow">
+    <label>brush radius <input type="range" id="brushRadius" min="10" max="150" value="45"></label>
+    <span id="brushRadiusLabel">45</span>
+  </div>
+
+  <h2>How this editor works</h2>
+  <div id="hint"></div>
+
+  <h2>Tile / point under cursor</h2>
+  <div id="tileInfo">—</div>
+
+  <h2>Save / load</h2>
+  <div class="row">
+    <button id="exportBtn">Export JSON</button>
+    <button id="importBtn">Import JSON</button>
+    <input type="file" id="fileInput" accept="application/json">
+  </div>
+  <div class="row">
+    <button id="playBtn" class="primary">▶ Play this map</button>
+  </div>
+  <div id="status"></div>
+</div>
+<div id="stage"><canvas id="canvas"></canvas></div>
+
+<script src="../node_modules/d3-delaunay/dist/d3-delaunay.min.js"></script>
+<script type="module">
+import {
+  generateHexMap, generateHexishMap, buildHexishFromPoints, relaxPointsInRadius, addPoint
+} from './core/map.js';
+import { dist } from './core/util.js';
+import { serializeMap, deserializeMap } from './core/serialize.js';
+import { randomizeElevation, ELEVATION_MAX } from './games/hexiso.js';
+import { randomizeTerrain, TERRAIN } from './games/civ.js';
+
+const $ = id => document.getElementById(id);
+const canvas = $('canvas');
+const ctx = canvas.getContext('2d');
+
+let variant = 'stretch';
+let map = null;
+let points = null;           // stretch only: raw point list, source of truth
+let civMapStyle = 'hex';     // civ only
+let tool = null;
+let paintTerrain = 'plains'; // civ
+let flattenValue = 3;        // hexiso
+
+let view = { scale: 1, x: 0, y: 0 };
+let dragging = false, panning = false, panFrom = null;
+let hoverWorld = [0, 0];
+let lastApply = 0;
+const THROTTLE_MS = 70;
+
+const TERRAIN_COLORS = { plains: '#efe9d0', forest: '#b7cfa4', hill: '#dbc9a3', mountain: '#9a938c', water: '#bcd8ee' };
+const TERRAIN_GLYPH = { forest: '♣', hill: '⌒', mountain: '▲', water: '≈' };
+const TERRAIN_GLYPH_COLOR = { forest: '#4e7d3a', hill: '#8a6d3b', mountain: '#5c564f', water: '#4a7fb5' };
+
+const HINTS = {
+  stretch: `HEXISH map: the terrain IS the point layout. ADD drops new\n` +
+    `Voronoi points where you click/drag — packing points tighter makes\n` +
+    `smaller, faster-to-cross tiles there. ERASE removes every point inside\n` +
+    `the brush. RELAX nudges points inside the brush toward their own\n` +
+    `cell's centroid each pass, smoothing a chaotic patch into even,\n` +
+    `regular-ish cells without changing how many points are there.\n` +
+    `The dashed circle is the map boundary — points placed outside it\n` +
+    `never become tiles.`,
+  hexiso: `REGULAR hex grid with integer elevation 0–${ELEVATION_MAX}.\n` +
+    `RAISE/LOWER bump every tile inside the brush by one step; hold the\n` +
+    `mouse down and sweep the brush to sculpt a ridge or a valley.\n` +
+    `FLATTEN sets every tile in the brush straight to the chosen level —\n` +
+    `good for carving a plateau or a ravine floor. The curving lines on\n` +
+    `tile edges are the same iso-line markers the game draws, live.`,
+  civ: `Pick a terrain from the palette, then click or drag to paint it onto\n` +
+    `every tile inside the brush. Plains cost 1 move; forest/hill cost 2\n` +
+    `and give +25% defense; mountains and water are impassable to land\n` +
+    `units — painting a mountain range or a lake will reshape where\n` +
+    `armies can walk. Toggle map style (hex/hexish) under New map.`
+};
+
+// ── view / geometry ──────────────────────────────────────────────────────
+
+function W2S(p) { return [p[0] * view.scale + view.x, p[1] * view.scale + view.y]; }
+function S2W(x, y) { return [(x - view.x) / view.scale, (y - view.y) / view.scale]; }
+
+function fitView() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  let minX, minY, maxX, maxY;
+  if (map.kind === 'hexish') {
+    const r = map.meta.radius;
+    minX = -r; minY = -r; maxX = r; maxY = r;
+  } else {
+    minX = 1e9; minY = 1e9; maxX = -1e9; maxY = -1e9;
+    for (const t of map.tiles) for (const p of t.polygon) {
+      minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]);
+      minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]);
+    }
+  }
+  const pad = 30;
+  view.scale = Math.min((w - pad * 2) / (maxX - minX), (h - pad * 2) / (maxY - minY));
+  view.x = w / 2 - (minX + maxX) / 2 * view.scale;
+  view.y = h / 2 - (minY + maxY) / 2 * view.scale;
+}
+
+function resize() {
+  canvas.width = canvas.clientWidth * devicePixelRatio;
+  canvas.height = canvas.clientHeight * devicePixelRatio;
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  draw();
+}
+new ResizeObserver(resize).observe(canvas);
+
+// ── rendering ────────────────────────────────────────────────────────────
+
+function drawPolygon(poly, fill, stroke, lineWidth = 1) {
+  ctx.beginPath();
+  poly.forEach((p, i) => { const s = W2S(p); i ? ctx.lineTo(s[0], s[1]) : ctx.moveTo(s[0], s[1]); });
+  ctx.closePath();
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lineWidth; ctx.stroke(); }
+}
+
+function drawIsoLines() {
+  for (const [a, b] of map.allEdges()) {
+    const ea = map.tile(a).props.elevation, eb = map.tile(b).props.elevation;
+    const n = Math.abs(ea - eb);
+    if (!n) continue;
+    const low = ea < eb ? a : b;
+    const [p1, p2] = map.sharedEdge(a, b);
+    const mid = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2];
+    const c = map.tile(low).center;
+    let dx = c[0] - mid[0], dy = c[1] - mid[1];
+    const len = Math.hypot(dx, dy) || 1; dx /= len; dy /= len;
+    ctx.strokeStyle = '#8a6d4f';
+    for (let k = 1; k <= Math.min(n, 5); k++) {
+      const off = k * 2.4, trim = 0.10 + k * 0.05;
+      const a1 = [p1[0] + (p2[0] - p1[0]) * trim + dx * off, p1[1] + (p2[1] - p1[1]) * trim + dy * off];
+      const a2 = [p2[0] + (p1[0] - p2[0]) * trim + dx * off, p2[1] + (p1[1] - p2[1]) * trim + dy * off];
+      const cp = [mid[0] + dx * (off + 3.4), mid[1] + dy * (off + 3.4)];
+      const s1 = W2S(a1), s2 = W2S(a2), sc = W2S(cp);
+      ctx.lineWidth = k === n ? 1.4 : 1;
+      ctx.beginPath(); ctx.moveTo(s1[0], s1[1]); ctx.quadraticCurveTo(sc[0], sc[1], s2[0], s2[1]); ctx.stroke();
+    }
+  }
+}
+
+function brushRadiusWorld() { return Number($('brushRadius').value); }
+
+function draw() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  ctx.clearRect(0, 0, w, h);
+  if (!map) return;
+
+  if (map.kind === 'hexish') {
+    const c = W2S([0, 0]);
+    ctx.beginPath();
+    ctx.arc(c[0], c[1], map.meta.radius * 0.97 * view.scale, 0, Math.PI * 2);
+    ctx.setLineDash([5, 5]); ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  for (const t of map.tiles) {
+    const fill = variant === 'civ' ? (TERRAIN_COLORS[t.props.terrain] || '#fbfaf6') : '#fbfaf6';
+    drawPolygon(t.polygon, fill, '#b9b4a8', 1);
+  }
+
+  if (variant === 'hexiso') {
+    drawIsoLines();
+    ctx.fillStyle = 'rgba(120,110,95,.6)'; ctx.font = '9px ui-monospace, monospace'; ctx.textAlign = 'center';
+    for (const t of map.tiles) { const s = W2S(t.center); ctx.fillText(t.props.elevation, s[0], s[1] + 3); }
+  }
+  if (variant === 'civ') {
+    ctx.textAlign = 'center'; ctx.font = `${Math.max(8, view.scale * 10)}px sans-serif`;
+    for (const t of map.tiles) {
+      const glyph = TERRAIN_GLYPH[t.props.terrain];
+      if (!glyph) continue;
+      const s = W2S(t.center);
+      ctx.fillStyle = TERRAIN_GLYPH_COLOR[t.props.terrain];
+      ctx.fillText(glyph, s[0], s[1] + 4);
+    }
+  }
+  if (variant === 'stretch' && points) {
+    ctx.fillStyle = '#555';
+    for (const p of points) {
+      const s = W2S(p);
+      ctx.beginPath(); ctx.arc(s[0], s[1], 2.4, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // brush preview
+  const s = W2S(hoverWorld);
+  if (variant === 'stretch' && tool === 'add') {
+    ctx.beginPath(); ctx.arc(s[0], s[1], 3, 0, Math.PI * 2);
+    ctx.strokeStyle = '#2b6cb0'; ctx.lineWidth = 1.4; ctx.stroke();
+  } else {
+    ctx.beginPath(); ctx.arc(s[0], s[1], brushRadiusWorld() * view.scale, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(43,108,176,.7)'; ctx.lineWidth = 1.4; ctx.stroke();
+  }
+
+  renderTileInfo();
+}
+
+function renderTileInfo() {
+  if (!map) { $('tileInfo').textContent = '—'; return; }
+  if (variant === 'stretch') {
+    let nearest = null, bd = Infinity;
+    for (const p of points) { const d = dist(p, hoverWorld); if (d < bd) { bd = d; nearest = p; } }
+    $('tileInfo').textContent = nearest
+      ? `nearest point (${nearest[0].toFixed(0)}, ${nearest[1].toFixed(0)}) · ${points.length} points total`
+      : '—';
+    return;
+  }
+  let nearestTile = null, bd = Infinity;
+  for (const t of map.tiles) { const d = dist(t.center, hoverWorld); if (d < bd) { bd = d; nearestTile = t; } }
+  if (!nearestTile) { $('tileInfo').textContent = '—'; return; }
+  $('tileInfo').textContent = variant === 'hexiso'
+    ? `tile ${nearestTile.id} · elevation ${nearestTile.props.elevation}`
+    : `tile ${nearestTile.id} · terrain ${nearestTile.props.terrain}`;
+}
+
+// ── map generation ───────────────────────────────────────────────────────
+
+function renderNewMapOpts() {
+  const holder = $('newMapOpts');
+  if (variant === 'stretch') {
+    holder.innerHTML = `
+      <label>seed <input type="number" id="optSeed" value="7"></label>
+      <label>tiles <input type="number" id="optTileCount" value="150" min="20" max="500"></label>
+      <label>radius <input type="number" id="optRadius" value="300" min="100" max="800"></label>`;
+  } else if (variant === 'hexiso') {
+    holder.innerHTML = `
+      <label>seed <input type="number" id="optSeed" value="7"></label>
+      <label>rings <input type="number" id="optRadius" value="7" min="2" max="14"></label>
+      <label>hex size <input type="number" id="optHexSize" value="26" min="10" max="60"></label>`;
+  } else { // civ
+    const styleField = `<label>style <select id="optMapStyle">
+      <option value="hex">regular hex</option><option value="hexish">hexish</option></select></label>`;
+    const hexFields = `<label>rings <input type="number" id="optRadius" value="7" min="2" max="14"></label>
+      <label>hex size <input type="number" id="optHexSize" value="26" min="10" max="60"></label>`;
+    const hexishFields = `<label>tiles <input type="number" id="optTileCount" value="150" min="20" max="500"></label>
+      <label>map radius <input type="number" id="optMapRadius" value="300" min="100" max="800"></label>`;
+    holder.innerHTML = `<label>seed <input type="number" id="optSeed" value="7"></label>` + styleField +
+      (civMapStyle === 'hex' ? hexFields : hexishFields);
+    $('optMapStyle').value = civMapStyle;
+    $('optMapStyle').onchange = () => { civMapStyle = $('optMapStyle').value; renderNewMapOpts(); };
+  }
+}
+
+function newMap() {
+  const seed = Number($('optSeed').value) || 1;
+  if (variant === 'stretch') {
+    const tileCount = Number($('optTileCount').value) || 150;
+    const radius = Number($('optRadius').value) || 300;
+    map = generateHexishMap({ tileCount, radius, seed });
+    points = map.meta.points.map(p => [...p]);
+  } else if (variant === 'hexiso') {
+    const radius = Number($('optRadius').value) || 7;
+    const hexSize = Number($('optHexSize').value) || 26;
+    map = generateHexMap({ radius, hexSize });
+    for (const t of map.tiles) t.props.elevation = Math.floor(ELEVATION_MAX / 2);
+    points = null;
+  } else { // civ
+    if (civMapStyle === 'hexish') {
+      const tileCount = Number($('optTileCount').value) || 150;
+      const mapRadius = Number($('optMapRadius').value) || 300;
+      map = generateHexishMap({ tileCount, radius: mapRadius, seed });
+    } else {
+      const radius = Number($('optRadius').value) || 7;
+      const hexSize = Number($('optHexSize').value) || 26;
+      map = generateHexMap({ radius, hexSize });
+    }
+    for (const t of map.tiles) t.props.terrain = 'plains';
+    points = null;
+  }
+  fitView();
+  renderToolOpts();
+  draw();
+  setStatus(`new ${variant} map · ${map.size} tiles`);
+}
+
+function randomize() {
+  if (!map || variant === 'stretch') return; // stretch: point editing IS the design tool
+  const seed = Number($('optSeed').value) || 1;
+  if (variant === 'hexiso') {
+    randomizeElevation(map, seed, map.meta.radius * map.meta.hexSize * 1.8);
+  } else if (variant === 'civ') {
+    const worldR = map.kind === 'hexish' ? map.meta.radius : map.meta.radius * map.meta.hexSize * 1.8;
+    randomizeTerrain(map, seed, worldR);
+  }
+  draw();
+  setStatus('randomized');
+}
+
+// ── tools ────────────────────────────────────────────────────────────────
+
+function toolButton(key, label) {
+  const b = document.createElement('button');
+  b.textContent = label;
+  b.className = tool === key ? 'active' : '';
+  b.onclick = () => { tool = key; renderToolOpts(); };
+  return b;
+}
+
+function renderToolOpts() {
+  const holder = $('toolOpts');
+  holder.innerHTML = '';
+  if (variant === 'stretch') {
+    if (!['add', 'remove', 'relax'].includes(tool)) tool = 'add';
+    holder.appendChild(toolButton('add', 'Add points'));
+    holder.appendChild(toolButton('remove', 'Erase points'));
+    holder.appendChild(toolButton('relax', 'Relax brush'));
+  } else if (variant === 'hexiso') {
+    if (!['raise', 'lower', 'flatten'].includes(tool)) tool = 'raise';
+    holder.appendChild(toolButton('raise', 'Raise'));
+    holder.appendChild(toolButton('lower', 'Lower'));
+    holder.appendChild(toolButton('flatten', 'Flatten to…'));
+    if (tool === 'flatten') {
+      const wrap = document.createElement('label');
+      wrap.innerHTML = `level <input type="range" id="flattenVal" min="0" max="${ELEVATION_MAX}" value="${flattenValue}"> ` +
+        `<span id="flattenValLabel">${flattenValue}</span>`;
+      holder.appendChild(wrap);
+      $('flattenVal').oninput = () => {
+        flattenValue = Number($('flattenVal').value);
+        $('flattenValLabel').textContent = flattenValue;
+      };
+    }
+  } else { // civ
+    tool = 'paint';
+    for (const key of Object.keys(TERRAIN_COLORS)) {
+      const b = document.createElement('button');
+      b.className = 'toolbtn' + (paintTerrain === key ? ' active' : '');
+      b.innerHTML = `<span class="swatch" style="background:${TERRAIN_COLORS[key]}"></span> ${key}`;
+      b.onclick = () => { paintTerrain = key; renderToolOpts(); };
+      holder.appendChild(b);
+    }
+  }
+}
+
+function applyToolAt(p) {
+  if (variant === 'stretch') applyStretchTool(p);
+  else if (variant === 'hexiso') applyHexisoTool(p);
+  else applyCivTool(p);
+  draw();
+}
+
+function applyStretchTool(p) {
+  const r = brushRadiusWorld();
+  if (tool === 'add') {
+    points = addPoint(points, p, 14);
+  } else if (tool === 'remove') {
+    const filtered = points.filter(q => dist(q, p) > r);
+    if (filtered.length < 6) { setStatus('keep at least 6 points'); return; }
+    points = filtered;
+  } else if (tool === 'relax') {
+    points = relaxPointsInRadius(points, p, r, map.meta.radius, 0.5);
+  }
+  map = buildHexishFromPoints(points, { radius: map.meta.radius, seed: map.meta.seed, tileCount: points.length });
+}
+
+function applyHexisoTool(p) {
+  const r = brushRadiusWorld();
+  for (const t of map.tiles) {
+    if (dist(t.center, p) > r) continue;
+    if (tool === 'raise') t.props.elevation = Math.min(ELEVATION_MAX, t.props.elevation + 1);
+    else if (tool === 'lower') t.props.elevation = Math.max(0, t.props.elevation - 1);
+    else if (tool === 'flatten') t.props.elevation = flattenValue;
+  }
+}
+
+function applyCivTool(p) {
+  const r = brushRadiusWorld();
+  for (const t of map.tiles) {
+    if (dist(t.center, p) > r) continue;
+    t.props.terrain = paintTerrain;
+  }
+}
+
+// ── variant switching ────────────────────────────────────────────────────
+
+function switchVariantSilently(v) {
+  variant = v;
+  document.querySelectorAll('#variantTabs button').forEach(b => b.classList.toggle('active', b.dataset.variant === v));
+  $('randomizeBtn').style.display = v === 'stretch' ? 'none' : '';
+  $('hint').textContent = HINTS[v];
+  tool = null;
+  renderNewMapOpts();
+}
+
+function switchVariant(v) {
+  switchVariantSilently(v);
+  newMap();
+}
+
+document.querySelectorAll('#variantTabs button').forEach(b => { b.onclick = () => switchVariant(b.dataset.variant); });
+
+// ── save / load ──────────────────────────────────────────────────────────
+
+function toPayload() { return { variant, ...serializeMap(map) }; }
+
+function doExport() {
+  const blob = new Blob([JSON.stringify(toPayload(), null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `hexwar-${variant}-map.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  setStatus('exported');
+}
+
+function doImport(ev) {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const json = JSON.parse(reader.result);
+      const v = json.variant && HINTS[json.variant] ? json.variant : variant;
+      switchVariantSilently(v);
+      if (v === 'stretch' && json.meta && json.meta.points) {
+        points = json.meta.points.map(p => [...p]);
+        map = buildHexishFromPoints(points, { radius: json.meta.radius, seed: json.meta.seed, tileCount: points.length });
+      } else {
+        map = deserializeMap(json);
+        points = null;
+        if (v === 'civ') civMapStyle = map.kind === 'hexish' ? 'hexish' : 'hex';
+      }
+      renderNewMapOpts();
+      fitView();
+      renderToolOpts();
+      draw();
+      setStatus(`imported ${map.size} tiles`);
+    } catch (e) {
+      setStatus('import failed: ' + e.message);
+    }
+  };
+  reader.readAsText(file);
+  ev.target.value = '';
+}
+
+function playInGame() {
+  if (!map) return;
+  localStorage.setItem('hexwar:customMap:' + variant, JSON.stringify(toPayload()));
+  window.open(`index.html?variant=${variant}`, '_blank');
+  setStatus('saved — opened in a new tab');
+}
+
+function setStatus(msg) { $('status').textContent = msg; }
+
+// ── interaction ──────────────────────────────────────────────────────────
+
+canvas.addEventListener('mousedown', ev => {
+  const rect = canvas.getBoundingClientRect();
+  const wp = S2W(ev.clientX - rect.left, ev.clientY - rect.top);
+  if (ev.button === 0) {
+    dragging = true;
+    applyToolAt(wp);
+    lastApply = performance.now();
+  } else {
+    panning = true; panFrom = { x: ev.clientX, y: ev.clientY };
+  }
+});
+window.addEventListener('mousemove', ev => {
+  const rect = canvas.getBoundingClientRect();
+  hoverWorld = S2W(ev.clientX - rect.left, ev.clientY - rect.top);
+  if (panning && panFrom) {
+    view.x += ev.clientX - panFrom.x; view.y += ev.clientY - panFrom.y;
+    panFrom = { x: ev.clientX, y: ev.clientY };
+  } else if (dragging) {
+    const now = performance.now();
+    if (now - lastApply > THROTTLE_MS) { applyToolAt(hoverWorld); lastApply = now; return; }
+  }
+  draw();
+});
+window.addEventListener('mouseup', () => { dragging = false; panning = false; panFrom = null; });
+canvas.addEventListener('contextmenu', ev => ev.preventDefault());
+canvas.addEventListener('wheel', ev => {
+  ev.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+  const factor = ev.deltaY < 0 ? 1.15 : 1 / 1.15;
+  view.x = mx - (mx - view.x) * factor;
+  view.y = my - (my - view.y) * factor;
+  view.scale *= factor;
+  draw();
+}, { passive: false });
+
+$('brushRadius').oninput = () => { $('brushRadiusLabel').textContent = $('brushRadius').value; draw(); };
+$('newMapBtn').onclick = newMap;
+$('randomizeBtn').onclick = randomize;
+$('exportBtn').onclick = doExport;
+$('importBtn').onclick = () => $('fileInput').click();
+$('fileInput').onchange = doImport;
+$('playBtn').onclick = playInGame;
+
+// ── go ───────────────────────────────────────────────────────────────────
+resize();
+switchVariant('stretch');
+</script>
+</body>
+</html>

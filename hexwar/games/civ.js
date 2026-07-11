@@ -7,15 +7,33 @@
 
 import { generateHexMap, generateHexishMap } from '../core/map.js';
 import { SeededRandom, makeBlobField } from '../core/util.js';
+import { deserializeMap } from '../core/serialize.js';
 import { placeArmies, placeObjectives } from './common.js';
 
-const TERRAIN = {
+export const TERRAIN = {
   plains:   { cost: 1, def: 1.0,  height: 0, passable: true },
   forest:   { cost: 2, def: 1.25, height: 1, passable: true },
   hill:     { cost: 2, def: 1.25, height: 1, passable: true },
   mountain: { cost: Infinity, def: 1, height: 3, passable: false },
   water:    { cost: Infinity, def: 1, height: 0, passable: false }
 };
+
+/** Mutates map.tiles[*].props.terrain with a fresh blob-noise terrain field. */
+export function randomizeTerrain(map, seed, worldR) {
+  const rng = new SeededRandom(seed * 31 + 17);
+  const relief = makeBlobField(rng, { blobs: 6, radius: worldR, sharpness: 1.5 });
+  const woods = makeBlobField(rng, { blobs: 7, radius: worldR, sharpness: 1.5 });
+  for (const t of map.tiles) {
+    const [x, y] = t.center;
+    const r = relief(x, y), w = woods(x, y);
+    let terrain = 'plains';
+    if (r > 0.86) terrain = 'mountain';
+    else if (r < 0.13) terrain = 'water';
+    else if (r > 0.66) terrain = 'hill';
+    else if (w > 0.68) terrain = 'forest';
+    t.props.terrain = terrain;
+  }
+}
 
 const unitTypes = {
   swordsman: { name: 'Swordsman', symbol: 'S', cls: 'melee', str: 22, move: 2,
@@ -61,25 +79,13 @@ export const civRuleset = {
   unitTypes,
 
   buildMap(opts) {
+    if (opts.customMap) return deserializeMap(opts.customMap);
     const map = opts.mapStyle === 'hexish'
       ? generateHexishMap({ tileCount: opts.tileCount, radius: opts.mapRadius, seed: opts.seed })
       : generateHexMap({ radius: opts.radius, hexSize: opts.hexSize });
 
-    const rng = new SeededRandom(opts.seed * 31 + 17);
     const worldR = opts.mapStyle === 'hexish' ? opts.mapRadius : opts.radius * opts.hexSize * 1.8;
-    const relief = makeBlobField(rng, { blobs: 6, radius: worldR, sharpness: 1.5 });
-    const woods = makeBlobField(rng, { blobs: 7, radius: worldR, sharpness: 1.5 });
-
-    for (const t of map.tiles) {
-      const [x, y] = t.center;
-      const r = relief(x, y), w = woods(x, y);
-      let terrain = 'plains';
-      if (r > 0.86) terrain = 'mountain';
-      else if (r < 0.13) terrain = 'water';
-      else if (r > 0.66) terrain = 'hill';
-      else if (w > 0.68) terrain = 'forest';
-      t.props.terrain = terrain;
-    }
+    randomizeTerrain(map, opts.seed, worldR);
     return map;
   },
 

@@ -7,6 +7,7 @@
 
 import { generateHexishMap } from '../core/map.js';
 import { SeededRandom, makeBlobField } from '../core/util.js';
+import { deserializeMap } from '../core/serialize.js';
 import { placeArmies, placeObjectives } from './common.js';
 
 const unitTypes = {
@@ -38,6 +39,7 @@ export const stretchRuleset = {
   unitTypes,
 
   buildMap(opts) {
+    if (opts.customMap) return deserializeMap(opts.customMap);
     const rng = new SeededRandom(opts.seed * 7 + 1);
     const field = makeBlobField(rng, { blobs: 5, radius: opts.radius, sharpness: 1.4 });
     const density = (x, y) => 0.55 + 4.5 * field(x, y) ** 2;

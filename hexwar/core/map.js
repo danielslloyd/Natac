@@ -223,25 +223,30 @@ export function generateHexMap({ radius = 6, hexSize = 30 } = {}) {
 // ---------------------------------------------------------------------------
 // Hexish grid (Voronoi over blue-noise points, optionally density-weighted)
 // ---------------------------------------------------------------------------
+//
+// The pipeline is split into named steps (sample -> relax -> build) so the
+// level editor can drive it interactively: hold the raw point list as the
+// source of truth, mutate it (add/remove/drag/relax-brush), and rebuild the
+// TileMap from scratch each edit via buildHexishFromPoints.
+
+function voronoiBounds(radius) {
+  return [-radius * 1.15, -radius * 1.15, radius * 1.15, radius * 1.15];
+}
+
+/** Shared Delaunay/Voronoi construction, reused by generation and editing. */
+export function computeVoronoi(points, radius) {
+  const delaunay = Delaunay.from(points);
+  const voronoi = delaunay.voronoi(voronoiBounds(radius));
+  return { delaunay, voronoi };
+}
 
 /**
- * Mitchell's best-candidate sampling with a density-scaled metric:
- * where density(x,y) is high, points may sit closer together, so the Voronoi
- * cells come out smaller. density defaults to uniform.
- *
- * Returns a TileMap of mostly 5/6/7-sided cells inside a circle of `radius`.
+ * Mitchell's best-candidate sampling with a density-scaled metric: where
+ * density(x,y) is high, points may sit closer together, so the eventual
+ * Voronoi cells come out smaller. Returns a raw point list (no topology).
  */
-export function generateHexishMap({
-  tileCount = 120,
-  radius = 300,
-  seed = 1,
-  density = null,       // (x, y) -> weight > 0 ; higher = smaller tiles there
-  relaxation = 2        // damped Lloyd iterations (cleans cell shapes)
-} = {}) {
-  const rng = new SeededRandom(seed);
+export function sampleBlueNoisePoints(rng, { tileCount = 120, radius = 300, density = null } = {}) {
   const dens = density || (() => 1);
-
-  // -- sample points -------------------------------------------------------
   const points = [];
   const randInDisc = () => {
     const a = rng.next() * Math.PI * 2;
@@ -267,13 +272,14 @@ export function generateHexishMap({
     }
     points.push(best);
   }
+  return points;
+}
 
-  // -- damped Lloyd relaxation (keeps density gradient, evens shapes) -------
-  const bounds = [-radius * 1.15, -radius * 1.15, radius * 1.15, radius * 1.15];
+/** Damped Lloyd relaxation over the whole point set (keeps density gradients, evens shapes). */
+export function dampedLloydRelax(points, radius, iterations = 2, damping = 0.35) {
   let pts = points;
-  for (let iter = 0; iter < relaxation; iter++) {
-    const delaunay = Delaunay.from(pts);
-    const voronoi = delaunay.voronoi(bounds);
+  for (let iter = 0; iter < iterations; iter++) {
+    const { voronoi } = computeVoronoi(pts, radius);
     const next = [];
     for (let i = 0; i < pts.length; i++) {
       const cell = voronoi.cellPolygon(i);
@@ -281,22 +287,61 @@ export function generateHexishMap({
       let cx = 0, cy = 0;
       for (const [x, y] of cell) { cx += x; cy += y; }
       cx /= cell.length; cy /= cell.length;
-      // damped move: full Lloyd would erase the density gradient
-      next.push([
-        pts[i][0] + (cx - pts[i][0]) * 0.35,
-        pts[i][1] + (cy - pts[i][1]) * 0.35
-      ]);
+      next.push([pts[i][0] + (cx - pts[i][0]) * damping, pts[i][1] + (cy - pts[i][1]) * damping]);
     }
     pts = next;
   }
+  return pts;
+}
 
-  // -- build final Voronoi and keep cells inside the circle ------------------
-  const delaunay = Delaunay.from(pts);
-  const voronoi = delaunay.voronoi(bounds);
+/**
+ * Relax only the points within `brushRadius` of `center`, one damped Lloyd
+ * step each, computed against the Voronoi of the FULL point set (so a brush
+ * stroke respects the cells of untouched neighbors). This is the "painting a
+ * Lloyd relaxation brush" tool: dragging it over a chaotic patch of points
+ * smooths their spacing toward regular hexagon-like cells.
+ */
+export function relaxPointsInRadius(points, center, brushRadius, radius, strength = 0.5) {
+  const { voronoi } = computeVoronoi(points, radius);
+  const out = points.map(p => [p[0], p[1]]);
+  for (let i = 0; i < points.length; i++) {
+    if (dist(points[i], center) > brushRadius) continue;
+    const cell = voronoi.cellPolygon(i);
+    if (!cell) continue;
+    let cx = 0, cy = 0;
+    for (const [x, y] of cell) { cx += x; cy += y; }
+    cx /= cell.length; cy /= cell.length;
+    out[i] = [points[i][0] + (cx - points[i][0]) * strength, points[i][1] + (cy - points[i][1]) * strength];
+  }
+  return out;
+}
+
+/** Adds a point unless it lands within minDist of an existing one. */
+export function addPoint(points, p, minDist = 8) {
+  for (const q of points) if (dist(p, q) < minDist) return points;
+  return [...points, [p[0], p[1]]];
+}
+
+/** Removes the point nearest to p, if within maxDist. */
+export function removeNearestPoint(points, p, maxDist = Infinity) {
+  let bi = -1, bd = Infinity;
+  points.forEach((q, i) => { const d = dist(p, q); if (d < bd) { bd = d; bi = i; } });
+  if (bi === -1 || bd > maxDist) return points;
+  return points.filter((_, i) => i !== bi);
+}
+
+/**
+ * Builds a TileMap from an explicit point list: Voronoi cells clipped to a
+ * circle of `radius`, keeping only the largest connected component. The
+ * exact input point array is preserved (uncropped) on map.meta.points so
+ * callers — the level editor in particular — can keep editing it and rebuild.
+ */
+export function buildHexishFromPoints(points, { radius = 300, seed = 1, tileCount } = {}) {
+  const { voronoi } = computeVoronoi(points, radius);
 
   const keep = [];
-  for (let i = 0; i < pts.length; i++) {
-    if (Math.hypot(pts[i][0], pts[i][1]) <= radius * 0.97) keep.push(i);
+  for (let i = 0; i < points.length; i++) {
+    if (Math.hypot(points[i][0], points[i][1]) <= radius * 0.97) keep.push(i);
   }
   const idOf = new Map(); // voronoi index -> tile id
   keep.forEach((v, i) => idOf.set(v, i));
@@ -305,7 +350,7 @@ export function generateHexishMap({
     const cell = voronoi.cellPolygon(v) || [];
     const polygon = cell.slice(0, cell.length - 1) // d3 repeats first point
       .map(([x, y]) => [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000]);
-    return { id: i, center: [pts[v][0], pts[v][1]], polygon, neighbors: [], props: {} };
+    return { id: i, center: [points[v][0], points[v][1]], polygon, neighbors: [], props: {} };
   });
   keep.forEach((v, i) => {
     for (const n of voronoi.neighbors(v)) {
@@ -344,5 +389,25 @@ export function generateHexishMap({
     t.neighbors = t.neighbors.filter(n => finalIds.has(n)).map(n => finalIds.get(n));
   });
 
-  return new TileMap(finalTiles, 'hexish', { seed, radius, tileCount });
+  return new TileMap(finalTiles, 'hexish', {
+    seed, radius, tileCount: tileCount ?? points.length,
+    points: points.map(p => [p[0], p[1]])
+  });
+}
+
+/**
+ * Returns a TileMap of mostly 5/6/7-sided cells inside a circle of `radius`.
+ * density(x, y) -> weight > 0; higher = smaller tiles there.
+ */
+export function generateHexishMap({
+  tileCount = 120,
+  radius = 300,
+  seed = 1,
+  density = null,
+  relaxation = 2   // damped Lloyd iterations (cleans cell shapes)
+} = {}) {
+  const rng = new SeededRandom(seed);
+  const points = sampleBlueNoisePoints(rng, { tileCount, radius, density });
+  const relaxed = dampedLloydRelax(points, radius, relaxation);
+  return buildHexishFromPoints(relaxed, { radius, seed, tileCount });
 }

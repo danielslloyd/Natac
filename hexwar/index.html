@@ -38,12 +38,15 @@
 </head>
 <body>
 <div id="panel">
-  <h1>hexwar</h1>
+  <h1>hexwar <a href="editor.html" style="font-size:11px;font-weight:normal">→ level editor</a></h1>
   <div class="row">
     <select id="variantSel"></select>
     <label>seed <input id="seedInput" type="number" value="7" style="width:70px"></label>
   </div>
   <div class="row" id="variantOpts"></div>
+  <div class="row" id="customMapRow" style="display:none">
+    <label><input type="checkbox" id="useCustomMap" checked> use my edited map (from level editor)</label>
+  </div>
   <div class="row">
     <label>P1 <select id="p0Sel"><option>human</option><option>heuristic</option><option>random</option></select></label>
     <label>P2 <select id="p1Sel"><option selected>heuristic</option><option>random</option><option>human</option></select></label>
@@ -96,6 +99,10 @@ for (const [key, rs] of Object.entries(RULESETS)) {
 $('variantSel').value = 'hexiso';
 $('variantSel').onchange = renderVariantOpts;
 
+function hasCustomMap(variant) {
+  return !!localStorage.getItem('hexwar:customMap:' + variant);
+}
+
 function renderVariantOpts() {
   const v = $('variantSel').value;
   const holder = $('variantOpts');
@@ -113,8 +120,10 @@ function renderVariantOpts() {
       if (game) { game.options.rangeMode = $('rangeModeSel').value; clearSelection(); draw(); }
     };
   }
+  $('customMapRow').style.display = hasCustomMap(v) ? '' : 'none';
 }
 renderVariantOpts();
+$('variantSel').addEventListener('change', () => { renderVariantOpts(); });
 
 $('newGameBtn').onclick = newGame;
 $('endTurnBtn').onclick = () => { if (game && isHuman(game.current)) { doAction({ type: 'endTurn' }); } };
@@ -128,7 +137,15 @@ function newGame() {
   const options = {};
   if (variant === 'civ' && $('mapStyleSel')) options.mapStyle = $('mapStyleSel').value;
   if (variant === 'hexiso' && $('rangeModeSel')) options.rangeMode = $('rangeModeSel').value;
+  let usingCustom = false;
+  if (hasCustomMap(variant) && $('useCustomMap').checked) {
+    try {
+      options.customMap = JSON.parse(localStorage.getItem('hexwar:customMap:' + variant));
+      usingCustom = true;
+    } catch (e) { /* ignore corrupt storage */ }
+  }
   game = createGame({ variant, seed, players: 2, options });
+  game._usingCustomMap = usingCustom;
   agents = [$('p0Sel').value, $('p1Sel').value]
     .map((name, i) => name === 'human' ? null : AGENTS[name](seed * 10 + i));
   selected = null; reach = new Map(); targets = [];
@@ -136,6 +153,13 @@ function newGame() {
   renderStatic();
   draw();
   scheduleAI();
+}
+
+// arriving from the editor's "Play this map" button
+const launchParams = new URLSearchParams(location.search);
+if (launchParams.get('variant') && RULESETS[launchParams.get('variant')]) {
+  $('variantSel').value = launchParams.get('variant');
+  renderVariantOpts();
 }
 
 // ── view / geometry ─────────────────────────────────────────────────────────
@@ -380,6 +404,7 @@ function renderStatus() {
     ? `GAME OVER — ${game.winner === 'draw' ? 'draw' : 'P' + (game.winner + 1) + ' wins'}`
     : `Round ${game.round} — P${game.current + 1} (${isHuman(game.current) ? 'you' : 'AI'}) to move`;
   s += ` · score ${game.players.map(p => p.score).join(' : ')}`;
+  if (game._usingCustomMap) s += ' · custom map';
   if (game.ruleset.key === 'surge') {
     s += ` · water ${game.props.waterLevel} (next: ${game.props.waterNext})`;
   }

@@ -15,6 +15,7 @@ agents and running simulated games at scale.
 ```bash
 npm install
 npm run serve                 # open http://localhost:8080/hexwar/
+                               # → level editor: http://localhost:8080/hexwar/editor.html
 npm test                      # engine + variant unit tests
 npm run sim                   # headless AI-vs-AI match (civ variant)
 node hexwar/sim/run.js --variant all --matches 10 --agents heuristic,random
@@ -28,12 +29,17 @@ hexwar/
   core/
     util.js      seeded RNG, blob noise fields, small math
     map.js       TileMap abstraction + generators:
-                   generateHexMap    — regular pointy-top hex grid
-                   generateHexishMap — Voronoi over blue-noise points,
-                                       optionally density-weighted
+                   generateHexMap        — regular pointy-top hex grid
+                   generateHexishMap     — Voronoi over blue-noise points,
+                                           optionally density-weighted
+                   buildHexishFromPoints, relaxPointsInRadius, addPoint —
+                                           the point-editing primitives the
+                                           level editor drives directly
     engine.js    Game: units, dual-budget Dijkstra movement, civ-style
                  combat, actions, turn/round loop, objectives, observe()
     los.js       per-tile-pair elevation line of sight
+    serialize.js TileMap <-> plain JSON, for export/import and buildMap's
+                 `opts.customMap` override
   games/
     common.js    army/objective placement helpers
     stretch.js   hexiso.js   civ.js   rift.js   surge.js   index.js
@@ -45,6 +51,7 @@ hexwar/
   tests/
     hexwar.test.js
   index.html     minimal canvas UI (clean lines, verbose text hints)
+  editor.html    level editor for stretch / hexiso / civ (see below)
 ```
 
 ## The framework
@@ -83,6 +90,38 @@ what makes the geometry-as-terrain variants work.
 
 All variants share the same objective scoring (hold a starred tile at round
 end; first to the target score, or last army standing, wins).
+
+## Level editor (`editor.html`)
+
+A hand-sculpting tool for the three variants whose maps are worth authoring
+by hand — `stretch`, `hexiso`, `civ`. Not implemented for `rift`/`surge`
+(their maps are edge-features/tide-driven, not a good fit for point-and-paint).
+
+- **Stretch** — the map *is* a Voronoi point layout, so the tools edit points
+  directly: **Add** drops new points where you click/drag (packing them
+  tighter makes smaller, faster-to-cross tiles); **Erase** removes every
+  point inside the brush; **Relax** nudges points inside the brush toward
+  their own cell's centroid each pass — a "smoothing" brush that evens out a
+  chaotic patch into regular hexagon-like cells without changing the point
+  count. `buildHexishFromPoints` rebuilds the Voronoi diagram from the live
+  point list after every stroke.
+- **Hex Iso** — **Raise**/**Lower** bump every tile in the brush by one
+  elevation step; **Flatten to…** sets the brush to a chosen level. Iso lines
+  redraw live as you sculpt, exactly as the game renders them.
+- **Civ** — pick a terrain from the palette (plains/forest/hill/mountain/
+  water) and paint it on with the brush; toggle hex vs. hexish map style.
+
+Each variant also has **Randomize** (reruns the same blob-noise generation
+the game itself uses, as a starting point to hand-edit from) and **Generate
+new** (a blank canvas — flat elevation / all-plains / freshly sampled points).
+
+**Export JSON** downloads the current map; **Import JSON** loads one back
+(including, for `stretch`, the exact underlying point list, so editing can
+resume losslessly). **▶ Play this map** stashes the map in `localStorage`
+and opens `index.html` with it pre-loaded — `createGame`'s `options.customMap`
+short-circuits that variant's `buildMap` straight to `deserializeMap`, so a
+hand-edited map is exercised through the same engine, AI agents, and
+`sim/run.js` as a procedurally generated one.
 
 ## Plugging in an AI
 

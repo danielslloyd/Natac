@@ -12,7 +12,19 @@
 import { generateHexMap } from '../core/map.js';
 import { SeededRandom, makeBlobField, clamp } from '../core/util.js';
 import { lineOfSight } from '../core/los.js';
+import { deserializeMap } from '../core/serialize.js';
 import { placeArmies, placeObjectives } from './common.js';
+
+export const ELEVATION_MAX = 6;
+
+/** Mutates map.tiles[*].props.elevation with a fresh blob-noise height field. */
+export function randomizeElevation(map, seed, worldR) {
+  const rng = new SeededRandom(seed * 13 + 5);
+  const field = makeBlobField(rng, { blobs: 7, radius: worldR, sharpness: 1.6 });
+  for (const t of map.tiles) {
+    t.props.elevation = clamp(Math.round(field(t.center[0], t.center[1]) * 6.99 - 0.5), 0, ELEVATION_MAX);
+  }
+}
 
 const unitTypes = {
   infantry: { name: 'Infantry', symbol: 'I', cls: 'melee', str: 20, move: 2, climb: 3,
@@ -44,13 +56,9 @@ export const hexIsoRuleset = {
   unitTypes,
 
   buildMap(opts) {
+    if (opts.customMap) return deserializeMap(opts.customMap);
     const map = generateHexMap({ radius: opts.radius, hexSize: opts.hexSize });
-    const rng = new SeededRandom(opts.seed * 13 + 5);
-    const worldR = opts.radius * opts.hexSize * 1.8;
-    const field = makeBlobField(rng, { blobs: 7, radius: worldR, sharpness: 1.6 });
-    for (const t of map.tiles) {
-      t.props.elevation = clamp(Math.round(field(t.center[0], t.center[1]) * 6.99 - 0.5), 0, 6);
-    }
+    randomizeElevation(map, opts.seed, opts.radius * opts.hexSize * 1.8);
     return map;
   },
 
