@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>hexwar — tactics sandbox</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.45 system-ui, sans-serif; background: #f5f4f0; color: #222;
+         display: flex; height: 100vh; overflow: hidden; }
+  #panel { width: 340px; min-width: 340px; padding: 12px; overflow-y: auto;
+           background: #fff; border-right: 1px solid #ddd; }
+  #panel h1 { font-size: 16px; margin: 0 0 8px; }
+  #panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+              color: #777; margin: 14px 0 4px; }
+  select, input, button { font: inherit; margin: 2px 0; }
+  button { cursor: pointer; padding: 3px 10px; border: 1px solid #999; background: #f2f2f2;
+           border-radius: 3px; }
+  button:hover { background: #e6e6e6; }
+  button.primary { background: #2b6cb0; color: #fff; border-color: #2b6cb0; }
+  #hint { white-space: pre-wrap; background: #f7f7f2; border: 1px solid #e2e2d8;
+          padding: 8px; font-size: 12px; border-radius: 3px; }
+  #status { font-weight: 600; margin: 6px 0; }
+  #tileInfo, #unitInfo { white-space: pre-wrap; font-family: ui-monospace, monospace;
+          font-size: 11px; background: #fafafa; border: 1px solid #eee; padding: 6px;
+          min-height: 30px; border-radius: 3px; }
+  #log { font-family: ui-monospace, monospace; font-size: 11px; color: #555;
+         white-space: pre-wrap; max-height: 150px; overflow-y: auto;
+         background: #fafafa; border: 1px solid #eee; padding: 6px; border-radius: 3px; }
+  #roster div { margin: 3px 0; }
+  #roster b { display: inline-block; min-width: 90px; }
+  #extraActions button { display: block; margin: 3px 0; }
+  #stage { flex: 1; position: relative; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 3px 0; }
+  label { user-select: none; }
+</style>
+</head>
+<body>
+<div id="panel">
+  <h1>hexwar <a href="editor.html" style="font-size:11px;font-weight:normal">→ level editor</a></h1>
+  <div class="row">
+    <select id="variantSel"></select>
+    <label>seed <input id="seedInput" type="number" value="7" style="width:70px"></label>
+  </div>
+  <div class="row" id="variantOpts"></div>
+  <div class="row" id="customMapRow" style="display:none">
+    <label><input type="checkbox" id="useCustomMap" checked> use my edited map (from level editor)</label>
+  </div>
+  <div class="row">
+    <label>P1 <select id="p0Sel"><option>human</option><option>heuristic</option><option>random</option></select></label>
+    <label>P2 <select id="p1Sel"><option selected>heuristic</option><option>random</option><option>human</option></select></label>
+  </div>
+  <div class="row">
+    <button id="newGameBtn" class="primary">New game</button>
+    <button id="endTurnBtn">End turn</button>
+  </div>
+  <div id="status"></div>
+  <h2>How this variant works</h2>
+  <div id="hint"></div>
+  <h2>Units</h2>
+  <div id="roster"></div>
+  <h2>Selected unit</h2>
+  <div id="unitInfo">—</div>
+  <div id="extraActions"></div>
+  <h2>Tile under cursor</h2>
+  <div id="tileInfo">—</div>
+  <h2>Log</h2>
+  <div id="log"></div>
+</div>
+<div id="stage"><canvas id="canvas"></canvas></div>
+
+<script src="../node_modules/d3-delaunay/dist/d3-delaunay.min.js"></script>
+<script type="module">
+import { createGame, RULESETS } from './games/index.js';
+import { AGENTS } from './ai/agents.js';
+
+const PLAYER_COLORS = ['#2b6cb0', '#dd6b20', '#2f855a', '#805ad5'];
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const $ = id => document.getElementById(id);
+
+let game = null;
+let agents = [null, null];       // null = human
+let selected = null;             // unit id
+let reach = new Map();
+let targets = [];
+let hoverTile = -1;
+let view = { scale: 1, x: 0, y: 0 };
+let aiTimer = null;
+
+// ── setup controls ──────────────────────────────────────────────────────────
+
+for (const [key, rs] of Object.entries(RULESETS)) {
+  const opt = document.createElement('option');
+  opt.value = key; opt.textContent = rs.title;
+  $('variantSel').appendChild(opt);
+}
+$('variantSel').value = 'hexiso';
+$('variantSel').onchange = renderVariantOpts;
+
+function hasCustomMap(variant) {
+  return !!localStorage.getItem('hexwar:customMap:' + variant);
+}
+
+function renderVariantOpts() {
+  const v = $('variantSel').value;
+  const holder = $('variantOpts');
+  holder.innerHTML = '';
+  if (v === 'civ') {
+    holder.innerHTML = `<label>map style
+      <select id="mapStyleSel"><option value="hex">regular hex</option>
+      <option value="hexish">hexish</option></select></label>`;
+  }
+  if (v === 'hexiso') {
+    holder.innerHTML = `<label>range mode
+      <select id="rangeModeSel"><option value="simple">simple (N tiles)</option>
+      <option value="los">line of sight</option></select></label>`;
+    $('rangeModeSel').onchange = () => {
+      if (game) { game.options.rangeMode = $('rangeModeSel').value; clearSelection(); draw(); }
+    };
+  }
+  $('customMapRow').style.display = hasCustomMap(v) ? '' : 'none';
+}
+renderVariantOpts();
+$('variantSel').addEventListener('change', () => { renderVariantOpts(); });
+
+$('newGameBtn').onclick = newGame;
+$('endTurnBtn').onclick = () => { if (game && isHuman(game.current)) { doAction({ type: 'endTurn' }); } };
+
+function isHuman(pid) { return agents[pid] === null; }
+
+function newGame() {
+  clearTimeout(aiTimer);
+  const variant = $('variantSel').value;
+  const seed = Number($('seedInput').value) || 1;
+  const options = {};
+  if (variant === 'civ' && $('mapStyleSel')) options.mapStyle = $('mapStyleSel').value;
+  if (variant === 'hexiso' && $('rangeModeSel')) options.rangeMode = $('rangeModeSel').value;
+  let usingCustom = false;
+  if (hasCustomMap(variant) && $('useCustomMap').checked) {
+    try {
+      options.customMap = JSON.parse(localStorage.getItem('hexwar:customMap:' + variant));
+      usingCustom = true;
+    } catch (e) { /* ignore corrupt storage */ }
+  }
+  game = createGame({ variant, seed, players: 2, options });
+  game._usingCustomMap = usingCustom;
+  agents = [$('p0Sel').value, $('p1Sel').value]
+    .map((name, i) => name === 'human' ? null : AGENTS[name](seed * 10 + i));
+  selected = null; reach = new Map(); targets = [];
+  fitView();
+  renderStatic();
+  draw();
+  scheduleAI();
+}
+
+// arriving from the editor's "Play this map" button
+const launchParams = new URLSearchParams(location.search);
+if (launchParams.get('variant') && RULESETS[launchParams.get('variant')]) {
+  $('variantSel').value = launchParams.get('variant');
+  renderVariantOpts();
+}
+
+// ── view / geometry ─────────────────────────────────────────────────────────
+
+function fitView() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+  for (const t of game.map.tiles) for (const p of t.polygon) {
+    minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]);
+    minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]);
+  }
+  const pad = 30;
+  view.scale = Math.min((w - pad * 2) / (maxX - minX), (h - pad * 2) / (maxY - minY));
+  view.x = w / 2 - (minX + maxX) / 2 * view.scale;
+  view.y = h / 2 - (minY + maxY) / 2 * view.scale;
+}
+const W2S = p => [p[0] * view.scale + view.x, p[1] * view.scale + view.y];
+const S2W = (x, y) => [(x - view.x) / view.scale, (y - view.y) / view.scale];
+
+function resize() {
+  canvas.width = canvas.clientWidth * devicePixelRatio;
+  canvas.height = canvas.clientHeight * devicePixelRatio;
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  if (game) draw();
+}
+new ResizeObserver(resize).observe(canvas);
+
+// ── rendering ───────────────────────────────────────────────────────────────
+
+function tileFill(t) {
+  const v = game.ruleset.key;
+  if (v === 'civ') {
+    return { plains: '#efe9d0', forest: '#b7cfa4', hill: '#dbc9a3',
+             mountain: '#9a938c', water: '#bcd8ee' }[t.props.terrain];
+  }
+  if (v === 'surge') {
+    const e = t.props.elevation;
+    if (e < game.props.waterLevel) {
+      const depth = Math.min(3, game.props.waterLevel - e);
+      return ['#cfe6f7', '#a9d0ef', '#84bae7', '#5fa4de'][depth];
+    }
+    const g = 246 - e * 7;
+    return `rgb(${g},${g - 3},${g - 14})`;
+  }
+  if (v === 'rift') {
+    const g = 248 - Math.round(t.props.shade * 14);
+    return `rgb(${g},${g},${g - 4})`;
+  }
+  return '#fbfaf6'; // stretch, hexiso: clear centers
+}
+
+function drawPolygon(poly, fill, stroke, lineWidth = 1) {
+  ctx.beginPath();
+  poly.forEach((p, i) => {
+    const s = W2S(p);
+    i ? ctx.lineTo(s[0], s[1]) : ctx.moveTo(s[0], s[1]);
+  });
+  ctx.closePath();
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lineWidth; ctx.stroke(); }
+}
+
+function drawIsoLines() {
+  // curving contour lines on edges between tiles of different elevation
+  for (const [a, b] of game.map.allEdges()) {
+    const ea = game.map.tile(a).props.elevation, eb = game.map.tile(b).props.elevation;
+    const n = Math.abs(ea - eb);
+    if (!n) continue;
+    const low = ea < eb ? a : b;
+    const [p1, p2] = game.map.sharedEdge(a, b);
+    const mid = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2];
+    const c = game.map.tile(low).center;
+    let dx = c[0] - mid[0], dy = c[1] - mid[1];
+    const len = Math.hypot(dx, dy) || 1;
+    dx /= len; dy /= len;
+    ctx.strokeStyle = '#8a6d4f';
+    for (let k = 1; k <= Math.min(n, 5); k++) {
+      const off = k * 2.4, trim = 0.10 + k * 0.05;
+      const a1 = [p1[0] + (p2[0] - p1[0]) * trim + dx * off, p1[1] + (p2[1] - p1[1]) * trim + dy * off];
+      const a2 = [p2[0] + (p1[0] - p2[0]) * trim + dx * off, p2[1] + (p1[1] - p2[1]) * trim + dy * off];
+      const cp = [mid[0] + dx * (off + 3.4), mid[1] + dy * (off + 3.4)];
+      const s1 = W2S(a1), s2 = W2S(a2), sc = W2S(cp);
+      ctx.lineWidth = k === n ? 1.4 : 1;
+      ctx.beginPath(); ctx.moveTo(s1[0], s1[1]); ctx.quadraticCurveTo(sc[0], sc[1], s2[0], s2[1]); ctx.stroke();
+    }
+  }
+}
+
+function drawEdgeFeatures() {
+  for (const [a, b] of game.map.allEdges()) {
+    const e = game.map.edgeProp(a, b);
+    if (!e || (!e.feature && !e.bridged)) continue;
+    const [p1, p2] = game.map.sharedEdge(a, b);
+    const s1 = W2S(p1), s2 = W2S(p2);
+    if (e.feature === 'river' && !e.bridged) {
+      ctx.strokeStyle = '#3f83c8'; ctx.lineWidth = 3.2; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(s1[0], s1[1]); ctx.lineTo(s2[0], s2[1]); ctx.stroke();
+    } else if (e.feature === 'rift' && !e.bridged) {
+      ctx.strokeStyle = '#3a3330'; ctx.lineWidth = 4.4; ctx.lineCap = 'butt';
+      ctx.beginPath(); ctx.moveTo(s1[0], s1[1]); ctx.lineTo(s2[0], s2[1]); ctx.stroke();
+      ctx.strokeStyle = '#f5f4f0'; ctx.lineWidth = 1.2; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(s1[0], s1[1]); ctx.lineTo(s2[0], s2[1]); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    if (e.bridged) {
+      // brown bar across the edge midpoint, perpendicular ticks
+      const mx = (s1[0] + s2[0]) / 2, my = (s1[1] + s2[1]) / 2;
+      let dx = s2[0] - s1[0], dy = s2[1] - s1[1];
+      const len = Math.hypot(dx, dy) || 1; dx /= len; dy /= len;
+      ctx.strokeStyle = '#8a5a2b'; ctx.lineWidth = 5; ctx.lineCap = 'butt';
+      ctx.beginPath();
+      ctx.moveTo(mx - dy * 7, my + dx * 7); ctx.lineTo(mx + dy * 7, my - dx * 7);
+      ctx.stroke();
+      ctx.strokeStyle = '#c89968'; ctx.lineWidth = 1.4;
+      for (const f of [-0.5, 0, 0.5]) {
+        ctx.beginPath();
+        ctx.moveTo(mx - dy * 6 + dx * f * 6, my + dx * 6 + dy * f * 6);
+        ctx.lineTo(mx + dy * 6 + dx * f * 6, my - dx * 6 + dy * f * 6);
+        ctx.stroke();
+      }
+    }
+  }
+}
+
+function draw() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  ctx.clearRect(0, 0, w, h);
+  if (!game) return;
+  const v = game.ruleset.key;
+
+  for (const t of game.map.tiles) drawPolygon(t.polygon, tileFill(t), '#b9b4a8', 1);
+
+  // variant-specific decorations
+  if (v === 'hexiso') {
+    drawIsoLines();
+    ctx.fillStyle = 'rgba(120,110,95,.55)'; ctx.font = '9px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    for (const t of game.map.tiles) {
+      const s = W2S(t.center);
+      ctx.fillText(t.props.elevation, s[0], s[1] - view.scale * 12);
+    }
+  }
+  if (v === 'rift') drawEdgeFeatures();
+  if (v === 'civ') {
+    ctx.textAlign = 'center'; ctx.font = `${Math.max(8, view.scale * 10)}px sans-serif`;
+    for (const t of game.map.tiles) {
+      const s = W2S(t.center);
+      const glyph = { forest: '♣', hill: '⌒', mountain: '▲', water: '≈' }[t.props.terrain];
+      if (glyph) {
+        ctx.fillStyle = { forest: '#4e7d3a', hill: '#8a6d3b', mountain: '#5c564f', water: '#4a7fb5' }[t.props.terrain];
+        ctx.fillText(glyph, s[0], s[1] + view.scale * 13);
+      }
+    }
+  }
+  if (v === 'surge') {
+    ctx.fillStyle = 'rgba(90,85,70,.5)'; ctx.font = '9px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    for (const t of game.map.tiles) {
+      const s = W2S(t.center);
+      ctx.fillText(t.props.elevation, s[0], s[1] - 8);
+      // dashed warning outline on tiles flooding next round
+      if (t.props.elevation >= game.props.waterLevel && t.props.elevation < game.props.waterNext) {
+        ctx.setLineDash([4, 3]);
+        drawPolygon(t.polygon, null, '#3f83c8', 1.6);
+        ctx.setLineDash([]);
+      }
+    }
+  }
+
+  // objectives
+  for (const t of game.map.tiles) {
+    if (!t.props.objective) continue;
+    const s = W2S(t.center);
+    star(s[0], s[1], Math.max(6, view.scale * 8), '#c9a227');
+  }
+
+  // move/attack overlays for the selected unit
+  if (selected && game.units.has(selected)) {
+    for (const [tileId] of reach) {
+      drawPolygon(game.map.tile(tileId).polygon, 'rgba(43,108,176,.18)', 'rgba(43,108,176,.5)', 1);
+    }
+    for (const tileId of targets) {
+      drawPolygon(game.map.tile(tileId).polygon, 'rgba(200,40,40,.12)', '#c82828', 2);
+    }
+  }
+  if (hoverTile >= 0) drawPolygon(game.map.tile(hoverTile).polygon, null, '#555', 1.6);
+
+  // units
+  for (const unit of game.units.values()) {
+    const t = game.map.tile(unit.tile);
+    const s = W2S(t.center);
+    const r = Math.max(7, view.scale * 9);
+    ctx.beginPath(); ctx.arc(s[0], s[1], r, 0, Math.PI * 2);
+    ctx.fillStyle = PLAYER_COLORS[unit.owner]; ctx.fill();
+    ctx.lineWidth = unit.id === selected ? 3 : 1.2;
+    ctx.strokeStyle = unit.id === selected ? '#111' : '#fff';
+    ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.font = `bold ${r}px sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(game.unitType(unit).symbol, s[0], s[1] + 0.5);
+    ctx.textBaseline = 'alphabetic';
+    // hp bar
+    const bw = r * 2;
+    ctx.fillStyle = '#222'; ctx.fillRect(s[0] - bw / 2, s[1] - r - 6, bw, 3);
+    ctx.fillStyle = unit.hp > 50 ? '#38a169' : unit.hp > 25 ? '#d69e2e' : '#c53030';
+    ctx.fillRect(s[0] - bw / 2, s[1] - r - 6, bw * unit.hp / 100, 3);
+    if (unit.fortified) { ctx.strokeStyle = '#555'; ctx.lineWidth = 1; ctx.strokeRect(s[0] - bw / 2 - 2, s[1] - r - 8, bw + 4, 7); }
+  }
+
+  renderStatus();
+}
+
+function star(x, y, r, color) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const rad = i % 2 ? r * 0.45 : r;
+    const a = -Math.PI / 2 + i * Math.PI / 5;
+    const px = x + Math.cos(a) * rad, py = y + Math.sin(a) * rad;
+    i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fillStyle = color; ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1;
+  ctx.strokeStyle = '#7d651a'; ctx.lineWidth = 1; ctx.stroke();
+}
+
+// ── panel text ──────────────────────────────────────────────────────────────
+
+function renderStatic() {
+  $('hint').textContent = game.ruleset.hint;
+  const roster = $('roster');
+  roster.innerHTML = '';
+  for (const [key, t] of Object.entries(game.ruleset.unitTypes)) {
+    const div = document.createElement('div');
+    div.innerHTML = `<b>${t.symbol} ${t.name}</b> ${t.note || ''}`;
+    roster.appendChild(div);
+  }
+}
+
+function renderStatus() {
+  if (!game) return;
+  let s = game.over
+    ? `GAME OVER — ${game.winner === 'draw' ? 'draw' : 'P' + (game.winner + 1) + ' wins'}`
+    : `Round ${game.round} — P${game.current + 1} (${isHuman(game.current) ? 'you' : 'AI'}) to move`;
+  s += ` · score ${game.players.map(p => p.score).join(' : ')}`;
+  if (game._usingCustomMap) s += ' · custom map';
+  if (game.ruleset.key === 'surge') {
+    s += ` · water ${game.props.waterLevel} (next: ${game.props.waterNext})`;
+  }
+  $('status').textContent = s;
+  $('log').textContent = game.log.slice(-14).join('\n');
+  $('log').scrollTop = $('log').scrollHeight;
+  renderUnitInfo();
+}
+
+function renderUnitInfo() {
+  const holder = $('extraActions');
+  holder.innerHTML = '';
+  if (!selected || !game.units.has(selected)) { $('unitInfo').textContent = '—'; return; }
+  const u = game.units.get(selected);
+  const t = game.unitType(u);
+  let s = `${t.name} (P${u.owner + 1})  hp ${u.hp}/100\n` +
+          `moves ${u.movesLeft}/${t.move} · attacks ${u.attacksLeft}`;
+  if (game.ruleset.lineBudget) s += ` · climb ${u.linesLeft}/${t.climb}`;
+  if (t.range) s += ` · range ${t.range}`;
+  if (u.fortified) s += ' · FORTIFIED';
+  $('unitInfo').textContent = s;
+  if (isHuman(u.owner) && u.owner === game.current && game.ruleset.extraActions) {
+    for (const action of game.ruleset.extraActions(game, u)) {
+      const btn = document.createElement('button');
+      btn.textContent = action.type + (action.to !== undefined ? ` → tile ${action.to}` : '');
+      btn.onclick = () => doAction(action);
+      holder.appendChild(btn);
+    }
+  }
+}
+
+function renderTileInfo(tileId) {
+  if (tileId < 0) { $('tileInfo').textContent = '—'; return; }
+  const t = game.map.tile(tileId);
+  const parts = [`tile ${t.id} · ${t.polygon.length}-gon`];
+  for (const [k, v] of Object.entries(t.props)) {
+    parts.push(`${k}: ${typeof v === 'number' ? Math.round(v * 100) / 100 : v}`);
+  }
+  const occ = game.unitAt(tileId);
+  if (occ) parts.push(`occupied: ${game.unitType(occ).name} P${occ.owner + 1} (${occ.hp}hp)`);
+  if (selected && reach.has(tileId)) {
+    const e = reach.get(tileId);
+    parts.push(`move here: ${e.cost} moves${game.ruleset.lineCost ? `, ${e.lines} lines` : ''}`);
+  }
+  if (game.ruleset.key === 'surge') {
+    const e = t.props.elevation;
+    parts.push(e < game.props.waterLevel ? 'FLOODED' :
+      e < game.props.waterNext ? 'floods next round!' : 'dry');
+  }
+  $('tileInfo').textContent = parts.join('\n');
+}
+
+// ── interaction ─────────────────────────────────────────────────────────────
+
+function clearSelection() {
+  selected = null; reach = new Map(); targets = [];
+}
+
+function selectUnit(unit) {
+  selected = unit.id;
+  reach = game.reachable(unit);
+  targets = game.attackableTiles(unit);
+}
+
+function doAction(action) {
+  const res = game.applyAction(action);
+  if (!res.ok) { game.say(`(blocked: ${res.reason})`); }
+  if (selected && game.units.has(selected)) {
+    selectUnit(game.units.get(selected)); // refresh overlays
+  } else clearSelection();
+  draw();
+  scheduleAI();
+}
+
+canvas.addEventListener('click', ev => {
+  if (!game || game.over || !isHuman(game.current)) return;
+  const rect = canvas.getBoundingClientRect();
+  const [wx, wy] = S2W(ev.clientX - rect.left, ev.clientY - rect.top);
+  const tileId = game.map.tileAtPoint(wx, wy);
+  if (tileId < 0) { clearSelection(); draw(); return; }
+
+  if (selected && game.units.has(selected)) {
+    if (targets.includes(tileId)) { doAction({ type: 'attack', unitId: selected, target: tileId }); return; }
+    if (reach.has(tileId)) { doAction({ type: 'move', unitId: selected, to: tileId }); return; }
+  }
+  const unit = game.unitAt(tileId);
+  if (unit && unit.owner === game.current) selectUnit(unit);
+  else clearSelection();
+  draw();
+});
+
+canvas.addEventListener('mousemove', ev => {
+  if (!game) return;
+  const rect = canvas.getBoundingClientRect();
+  const [wx, wy] = S2W(ev.clientX - rect.left, ev.clientY - rect.top);
+  const t = game.map.tileAtPoint(wx, wy);
+  if (t !== hoverTile) { hoverTile = t; renderTileInfo(t); draw(); }
+});
+
+canvas.addEventListener('wheel', ev => {
+  ev.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+  const factor = ev.deltaY < 0 ? 1.15 : 1 / 1.15;
+  view.x = mx - (mx - view.x) * factor;
+  view.y = my - (my - view.y) * factor;
+  view.scale *= factor;
+  draw();
+}, { passive: false });
+
+let dragging = null;
+canvas.addEventListener('mousedown', ev => { if (ev.button === 1 || ev.button === 2) dragging = { x: ev.clientX, y: ev.clientY }; });
+window.addEventListener('mousemove', ev => {
+  if (!dragging) return;
+  view.x += ev.clientX - dragging.x; view.y += ev.clientY - dragging.y;
+  dragging = { x: ev.clientX, y: ev.clientY };
+  draw();
+});
+window.addEventListener('mouseup', () => dragging = null);
+canvas.addEventListener('contextmenu', ev => ev.preventDefault());
+
+// ── AI driver (one visible action at a time) ────────────────────────────────
+
+function scheduleAI() {
+  clearTimeout(aiTimer);
+  if (!game || game.over || isHuman(game.current)) { draw(); return; }
+  aiTimer = setTimeout(aiStep, 140);
+}
+
+function aiStep() {
+  if (!game || game.over || isHuman(game.current)) { draw(); return; }
+  const pid = game.current;
+  const agent = agents[pid];
+  const actions = game.legalActions(pid);
+  const action = agent.chooseAction(game, pid, actions) || { type: 'endTurn' };
+  const res = game.applyAction(action);
+  if (!res.ok) game.applyAction({ type: 'endTurn' });
+  draw();
+  scheduleAI();
+}
+
+// ── go ──────────────────────────────────────────────────────────────────────
+resize();
+newGame();
+</script>
+</body>
+</html>
