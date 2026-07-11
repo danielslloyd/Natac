@@ -5,8 +5,9 @@
   "main": "src/api/index.js",
   "type": "module",
   "scripts": {
-    "test": "node --test src/tests/**/*.test.js",
-    "serve": "npx http-server -p 8080"
+    "test": "node --test src/tests/**/*.test.js hexwar/tests/*.test.js",
+    "serve": "npx http-server -p 8080",
+    "sim": "node hexwar/sim/run.js"
   },
   "keywords": ["catan", "board-game", "polygon", "delaunay"],
   "author": "",
