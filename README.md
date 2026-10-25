@@ -10,6 +10,10 @@ A flexible, rule-configurable implementation of a Settlers of Catan-like board g
   need food, then ammo, then fuel, all delivered along length-costed supply
   lines; land, sea and air units all move distinctly. See
   [COMBAT_MODE.md](./COMBAT_MODE.md).
+- **🎖️ Natac: Blitz** (`blitz.html`) — a deck-building WW2 conquest game modelled
+  on *The Quest for El Dorado*: rations, fuel and ammo cards move and arm your
+  infantry, armor, artillery and aircraft on hex or polygon maps; capture the
+  enemy HQ. See [BLITZ_MODE.md](./BLITZ_MODE.md).
 
 ## Features
 

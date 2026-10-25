@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Natac: Blitz — Deck-Building Conquest</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #4b4a3a 0%, #24251d 100%);
+      min-height: 100vh; padding: 16px; color: #1a1a1a;
+    }
+    .container { max-width: 1600px; margin: 0 auto; background: #fff; border-radius: 14px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4); overflow: hidden; }
+    .header { background: linear-gradient(135deg, #5a5a3c 0%, #34352a 100%); color: #fff;
+      padding: 20px 30px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .header h1 { font-size: 1.8rem; letter-spacing: 0.5px; }
+    .header p { opacity: 0.8; font-size: 0.92rem; margin-top: 4px; }
+    .header a { color: #e2e0c8; font-size: 0.85rem; text-decoration: none; border: 1px solid #8a8a6a;
+      padding: 6px 12px; border-radius: 6px; white-space: nowrap; }
+    .header a:hover { background: rgba(255,255,255,0.1); }
+
+    /* Setup */
+    .setup { padding: 30px 40px; }
+    .setup h2 { color: #3a3a2a; margin: 20px 0 10px; font-size: 1.15rem; }
+    .setup p.lead { color: #4a5568; line-height: 1.55; max-width: 900px; }
+    .setup-row { display: flex; gap: 26px; flex-wrap: wrap; margin-top: 8px; }
+    .setup-field { display: flex; flex-direction: column; gap: 6px; }
+    .setup-field label { font-weight: 600; color: #4a5568; font-size: 0.9rem; }
+    .setup-field input, .setup-field select { padding: 9px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 1rem; width: 190px; }
+    .rules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 10px; }
+    .rule-card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; font-size: 0.86rem; line-height: 1.5; color: #4a5568; }
+    .rule-card h3 { color: #5a5a3c; font-size: 0.98rem; margin-bottom: 6px; }
+    .btn { background: linear-gradient(135deg, #6b6b3a 0%, #4a4a28 100%); color: #fff; border: none;
+      padding: 14px 40px; font-size: 1.05rem; border-radius: 8px; cursor: pointer; margin-top: 24px; font-weight: 600; }
+    .btn:hover { filter: brightness(1.1); }
+
+    /* Game */
+    .game { display: none; padding: 14px; }
+    .game-layout { display: grid; grid-template-columns: 330px 1fr 300px; gap: 14px; }
+    .sidebar { background: #f7f7f2; border-radius: 12px; padding: 12px; max-height: 92vh; overflow-y: auto; }
+    .panel { background: #fff; border: 1px solid #e2e2d8; border-radius: 10px; padding: 11px; margin-bottom: 11px; }
+    .panel h3 { font-size: 0.92rem; color: #2d3748; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: baseline; }
+    .panel h3 small { font-weight: 400; color: #718096; font-size: 0.75rem; }
+    .turn-line { font-size: 0.95rem; display: flex; align-items: center; gap: 8px; }
+    .swatch { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+    .pools { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+    .pool { text-align: center; border-radius: 8px; padding: 6px 2px; background: #f1f1ea; font-size: 0.75rem; color: #4a5568; }
+    .pool b { display: block; font-size: 1.25rem; color: #1a1a1a; }
+    .hand { display: flex; flex-wrap: wrap; gap: 6px; }
+    .card { width: 92px; min-height: 104px; border-radius: 8px; border: 2px solid #ccc; background: #fff; padding: 5px;
+      cursor: pointer; font-size: 0.7rem; display: flex; flex-direction: column; gap: 3px; position: relative; transition: transform .1s; }
+    .card:hover { transform: translateY(-2px); box-shadow: 0 3px 8px rgba(0,0,0,0.15); }
+    .card .cname { font-weight: 700; font-size: 0.74rem; line-height: 1.15; }
+    .card .cval { font-size: 1.35rem; font-weight: 800; text-align: center; margin: 2px 0; }
+    .card .cdesc { color: #4a5568; line-height: 1.2; }
+    .card .tag { position: absolute; top: 3px; right: 4px; font-size: 0.6rem; color: #a0aec0; }
+    .card.selected { outline: 3px solid #d69e2e; }
+    .card.disabled { opacity: 0.5; cursor: default; }
+    .ctrl-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .ctrl-row button { flex: 1; padding: 9px; border: none; border-radius: 8px; cursor: pointer;
+      font-size: 0.85rem; font-weight: 600; color: #fff; background: #6b6b3a; min-width: 80px; }
+    .ctrl-row button.secondary { background: #718096; }
+    .ctrl-row button.danger { background: #c53030; }
+    .ctrl-row button:disabled { background: #cbd5e0; cursor: not-allowed; }
+    .mode-banner { background: #fefcbf; border: 1px solid #ecc94b; border-radius: 8px; padding: 8px; font-size: 0.82rem; margin-top: 8px; }
+    .market { display: flex; flex-direction: column; gap: 5px; }
+    .mkt { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: center; padding: 6px 8px;
+      border: 1px solid #e2e2d8; border-radius: 8px; font-size: 0.78rem; cursor: pointer; border-left-width: 5px; }
+    .mkt:hover { background: #fafae8; }
+    .mkt.disabled { opacity: 0.45; cursor: not-allowed; }
+    .mkt .nm { font-weight: 700; }
+    .mkt .ds { color: #718096; font-size: 0.72rem; }
+    .mkt .cost { font-weight: 800; white-space: nowrap; }
+    .mkt .stock { color: #a0aec0; font-size: 0.7rem; }
+    .unit-info { font-size: 0.8rem; line-height: 1.55; color: #2d3748; }
+    .unit-info .k { color: #718096; display: inline-block; width: 86px; }
+    .log { font-size: 0.76rem; line-height: 1.45; max-height: 200px; overflow-y: auto; color: #4a5568; }
+    .log div { padding: 2px 0; border-bottom: 1px solid #f0f0ea; }
+    .canvas-wrap { background: #e6e4d8; border-radius: 12px; padding: 8px; position: relative; }
+    #board { display: block; width: 100%; border-radius: 8px; cursor: pointer; }
+    #tooltip { position: absolute; pointer-events: none; background: rgba(26,32,44,0.94); color: #fff; padding: 7px 10px;
+      border-radius: 6px; font-size: 0.76rem; line-height: 1.45; display: none; max-width: 260px; z-index: 5; }
+    .hint { font-size: 0.78rem; color: #4a5568; margin-top: 6px; }
+    .legend { display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.72rem; color: #4a5568; margin-top: 6px; }
+    .legend span { display: inline-flex; align-items: center; gap: 4px; }
+    .matrix { border-collapse: collapse; font-size: 0.72rem; width: 100%; }
+    .matrix td, .matrix th { border: 1px solid #e2e2d8; padding: 3px; text-align: center; }
+    .matrix .good { background: #c6f6d5; } .matrix .bad { background: #fed7d7; } .matrix .no { background: #e2e8f0; color: #a0aec0; }
+    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 10; }
+    .overlay .box { background: #fff; border-radius: 14px; padding: 28px 36px; text-align: center; max-width: 440px; }
+    .overlay h2 { margin-bottom: 10px; }
+    .wild-pick { display: flex; gap: 6px; margin-top: 6px; }
+    .wild-pick button { flex: 1; padding: 6px; border: none; border-radius: 6px; color: #fff; cursor: pointer; font-weight: 700; }
+    @media (max-width: 1200px) { .game-layout { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div>
+      <h1>🎖️ Natac: Blitz</h1>
+      <p>Deck-building WW2 conquest — draw fuel, rations and ammo to move and fight. Capture the enemy HQ.</p>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <a href="./combat.html">⚔️ Natac: War</a>
+      <a href="./index.html">← Settlement game</a>
+    </div>
+  </div>
+
+  <!-- Setup -->
+  <div class="setup" id="setup">
+    <p class="lead">Inspired by <i>The Quest for El Dorado</i>: your army only moves as far as the cards in your hand allow.
+      Every card is a type of supply. Spend <b>Rations</b> to march infantry, <b>Fuel</b> to drive armor, artillery and aircraft,
+      <b>Ammo</b> to attack, and <b>Funds</b> to buy better cards from the shared market. Build your deck, take the
+      supply depots, and storm the enemy HQ.</p>
+
+    <h2>Game settings</h2>
+    <div class="setup-row">
+      <div class="setup-field"><label>Map</label>
+        <select id="cfgMap"><option value="hex">Hex grid</option><option value="poly">Polygons (5/6/7-sided)</option></select></div>
+      <div class="setup-field"><label>Seed</label><input id="cfgSeed" type="number" value="1"></div>
+      <div class="setup-field"><label>Allies (blue)</label>
+        <select id="cfgP0"><option value="human">Human</option><option value="ai">AI</option></select></div>
+      <div class="setup-field"><label>Axis (red)</label>
+        <select id="cfgP1"><option value="ai">AI</option><option value="human">Human</option></select></div>
+      <div class="setup-field"><label>AI speed</label>
+        <select id="cfgSpeed"><option value="350">Normal</option><option value="120">Fast</option><option value="0">Instant</option></select></div>
+    </div>
+    <button class="btn" id="startBtn">Start campaign</button>
+
+    <h2>How it plays</h2>
+    <div class="rules-grid" id="rulesGrid"></div>
+  </div>
+
+  <!-- Game -->
+  <div class="game" id="game">
+    <div class="game-layout">
+      <div class="sidebar">
+        <div class="panel">
+          <div class="turn-line"><span class="swatch" id="turnSwatch"></span><b id="turnName"></b><span id="turnRound" style="color:#718096;font-size:0.82rem;"></span></div>
+          <div class="hint" id="turnMeta"></div>
+        </div>
+        <div class="panel">
+          <h3>Supply pools <small>this turn</small></h3>
+          <div class="pools" id="pools"></div>
+        </div>
+        <div class="panel">
+          <h3>Hand <small id="deckInfo"></small></h3>
+          <div class="hand" id="hand"></div>
+          <div id="modeBanner"></div>
+          <div class="ctrl-row">
+            <button id="playAllBtn" class="secondary" title="Play every resource card in hand">Play all supplies</button>
+            <button id="discardBtn" class="secondary" title="Select cards to discard before drawing">Discard…</button>
+          </div>
+          <div class="ctrl-row"><button id="endTurnBtn">End turn ⏎</button></div>
+        </div>
+        <div class="panel">
+          <h3>Selected</h3>
+          <div class="unit-info" id="unitInfo"><span style="color:#a0aec0">Click one of your units.</span></div>
+        </div>
+      </div>
+
+      <div class="canvas-wrap">
+        <canvas id="board" width="1200" height="760"></canvas>
+        <div id="tooltip"></div>
+        <div class="legend" id="legend"></div>
+        <div class="hint">Click a unit → green tiles are reachable (cost shown), red rings are targets in range. Hover a target for the predicted damage. Esc deselects.</div>
+      </div>
+
+      <div class="sidebar">
+        <div class="panel">
+          <h3>Market <small id="buyNote"></small></h3>
+          <div class="market" id="market"></div>
+        </div>
+        <div class="panel">
+          <h3>Matchups <small>attacker → defender</small></h3>
+          <table class="matrix" id="matrix"></table>
+        </div>
+        <div class="panel">
+          <h3>Log</h3>
+          <div class="log" id="log"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlay"><div class="box"><h2 id="overTitle"></h2><p id="overText"></p>
+  <button class="btn" onclick="location.reload()">New game</button></div></div>
+
+<script type="module">
+  import * as E from './src/blitz/engine.js';
+  import { nextAIAction } from './src/blitz/ai.js';
+
+  const $ = id => document.getElementById(id);
+  const canvas = $('board'), ctx = canvas.getContext('2d');
+  let state = null;
+  let selectedUnit = null;
+  let mode = null;            // null | { kind: 'trash'|'discard'|'wild', cardId?, picks: Set }
+  let hoverTile = null;
+  let aiDelay = 350;
+  let aiRunning = false;
+  let view = { scale: 1, ox: 0, oy: 0 };
+
+  // ----- setup screen ------------------------------------------------------
+  const typeLine = (k) => {
+    const T = E.UNIT_TYPES[k];
+    return `<b>${T.symbol} ${T.name}</b> — atk ${T.atk} / def ${T.def} / ${T.hp} HP, moves ≤${T.maxMove} with ${E.RESOURCES[T.moveRes].icon}, range ${T.minRange === T.range ? T.range : T.minRange + '–' + T.range}, ${T.ammo} 💥 per attack.<br>${T.blurb}`;
+  };
+  $('rulesGrid').innerHTML = `
+    <div class="rule-card"><h3>Your turn</h3>Play cards from your hand to fill your supply pools, then spend the pools to move and attack.
+      Buy <b>one</b> card from the market per turn (funds pay full value, any other card discarded for payment counts ½).
+      Unplayed cards stay in hand. At the end of your turn you draw back up to ${E.BASE_HAND_SIZE} cards (+1 per depot held, max ${E.MAX_HAND_SIZE}).</div>
+    <div class="rule-card"><h3>Winning</h3>Move an infantry or armor unit onto the enemy HQ, or destroy every enemy unit.
+      After ${E.ROUND_LIMIT} rounds the player holding more depots wins. Units heal ${E.HEAL_AT_BASE} HP per turn on your HQ or a held depot.</div>
+    <div class="rule-card"><h3>Combat</h3>No dice. Damage depends on attack vs. defence, the matchup table, terrain cover and current HP.
+      A defender that survives and can reach the attacker fires back (weaker). Each unit attacks once per turn and cannot move after attacking.</div>
+    ${Object.keys(E.UNIT_TYPES).map(k => `<div class="rule-card">${typeLine(k)}</div>`).join('')}
+  `;
+
+  $('startBtn').onclick = () => {
+    aiDelay = +$('cfgSpeed').value;
+    state = E.createGame({
+      mapType: $('cfgMap').value,
+      seed: +$('cfgSeed').value || 1,
+      players: [{ ai: $('cfgP0').value === 'ai' }, { ai: $('cfgP1').value === 'ai' }]
+    });
+    $('setup').style.display = 'none';
+    $('game').style.display = 'block';
+    fitView();
+    buildStatic();
+    refresh();
+    maybeRunAI();
+  };
+
+  function buildStatic() {
+    const types = Object.keys(E.UNIT_TYPES);
+    let h = '<tr><th></th>' + types.map(t => `<th title="${E.UNIT_TYPES[t].name}">${E.UNIT_TYPES[t].symbol}</th>`).join('') + '</tr>';
+    for (const a of types) {
+      h += `<tr><th title="${E.UNIT_TYPES[a].name}">${E.UNIT_TYPES[a].symbol}</th>`;
+      for (const d of types) {
+        const m = E.MATCHUP[a][d];
+        h += `<td class="${!m ? 'no' : m > 1.05 ? 'good' : m < 0.95 ? 'bad' : ''}">${m ? '×' + m : '—'}</td>`;
+      }
+      h += '</tr>';
+    }
+    $('matrix').innerHTML = h;
+    $('legend').innerHTML = Object.entries(E.TERRAIN).map(([k, t]) =>
+      `<span><i class="swatch" style="background:${t.color}"></i>${t.name} (🥾${fmtCost(t.cost.foot)} ⚙${fmtCost(t.cost.tracks)})</span>`).join('') +
+      '<span>⭐ HQ</span><span>⛺ Depot</span>';
+  }
+  const fmtCost = c => c === Infinity ? '✕' : c;
+
+  // ----- view / geometry -----------------------------------------------------
+  function fitView() {
+    const pad = 30;
+    canvas.height = Math.round(canvas.width * (state.height + 1.2) / (state.width + 1.2));
+    const w = canvas.width - pad * 2, h = canvas.height - pad * 2;
+    const scale = Math.min(w / (state.width + 1.2), h / (state.height + 1.2));
+    view = { scale, ox: canvas.width / 2, oy: canvas.height / 2 };
+  }
+  const toScreen = ([x, y]) => [view.ox + x * view.scale, view.oy + y * view.scale];
+
+  function pointInPoly(px, py, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [xi, yi] = toScreen(poly[i]), [xj, yj] = toScreen(poly[j]);
+      if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+  function tileAtPixel(px, py) {
+    for (const t of state.tiles) if (pointInPoly(px, py, t.poly)) return t.id;
+    return null;
+  }
+  function eventPos(ev) {
+    const r = canvas.getBoundingClientRect();
+    return [(ev.clientX - r.left) * canvas.width / r.width, (ev.clientY - r.top) * canvas.height / r.height];
+  }
+
+  // ----- rendering -------------------------------------------------------------
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#dcd9c8';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const reach = selectedUnit ? E.reachableTiles(state, selectedUnit) : new Map();
+    const targets = selectedUnit ? new Set(E.attackTargets(state, selectedUnit)) : new Set();
+    const sel = selectedUnit && E.unitById(state, selectedUnit);
+    const s = view.scale;
+
+    for (const t of state.tiles) {
+      const pts = t.poly.map(toScreen);
+      ctx.beginPath();
+      pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+      ctx.closePath();
+      ctx.fillStyle = E.TERRAIN[t.terrain].color;
+      ctx.fill();
+      if (reach.has(t.id)) { ctx.fillStyle = 'rgba(56,161,105,0.45)'; ctx.fill(); }
+      if (hoverTile === t.id) { ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fill(); }
+      ctx.strokeStyle = 'rgba(40,40,30,0.35)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      if (t.owner !== null && (t.depot || t.hq !== null)) {
+        ctx.strokeStyle = state.players[t.owner].color;
+        ctx.lineWidth = Math.max(2, s * 0.07);
+        ctx.stroke();
+      }
+    }
+    // Air radius of the selected aircraft's airfields.
+    if (sel && sel.type === 'air') {
+      for (const t of state.tiles) {
+        if (E.withinAirRange(state, sel.owner, t.id)) continue;
+        const pts = t.poly.map(toScreen);
+        ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath();
+        ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fill();
+      }
+    }
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const t of state.tiles) {
+      const [x, y] = toScreen(t.center);
+      if (t.hq !== null || t.depot) {
+        ctx.font = `${Math.round(s * 0.42)}px sans-serif`;
+        ctx.globalAlpha = unitAtTile(t.id) ? 0.35 : 1;
+        ctx.fillText(t.hq !== null ? '⭐' : '⛺', x, y - (unitAtTile(t.id) ? s * 0.28 : 0));
+        ctx.globalAlpha = 1;
+      }
+      if (reach.has(t.id) && !unitAtTile(t.id)) {
+        ctx.font = `bold ${Math.round(s * 0.24)}px sans-serif`;
+        ctx.fillStyle = '#1c4532';
+        ctx.fillText(reach.get(t.id), x + s * 0.27, y + s * 0.27);
+      }
+    }
+    for (const u of state.units) {
+      const T = E.UNIT_TYPES[u.type];
+      const [x, y] = toScreen(state.tiles[u.tile].center);
+      const r = s * 0.33;
+      ctx.beginPath();
+      if (u.type === 'air') { ctx.moveTo(x, y - r * 1.1); ctx.lineTo(x + r * 1.1, y); ctx.lineTo(x, y + r * 1.1); ctx.lineTo(x - r * 1.1, y); ctx.closePath(); }
+      else ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = state.players[u.owner].color;
+      ctx.fill();
+      const spent = u.owner === state.current && (u.attacked || u.moved > 0);
+      ctx.lineWidth = selectedUnit === u.id ? 4 : 2;
+      ctx.strokeStyle = selectedUnit === u.id ? '#f6e05e' : spent ? '#718096' : '#fff';
+      ctx.stroke();
+      ctx.font = `${Math.round(r * 1.05)}px sans-serif`;
+      ctx.fillStyle = '#fff';
+      ctx.fillText(T.symbol, x, y + 1);
+      // HP bar
+      const bw = r * 1.8, frac = u.hp / T.hp;
+      ctx.fillStyle = '#2d3748'; ctx.fillRect(x - bw / 2, y + r + 2, bw, 4);
+      ctx.fillStyle = frac > 0.6 ? '#48bb78' : frac > 0.3 ? '#ecc94b' : '#e53e3e';
+      ctx.fillRect(x - bw / 2, y + r + 2, bw * frac, 4);
+      if (targets.has(u.id)) {
+        ctx.beginPath(); ctx.arc(x, y, r + 6, 0, Math.PI * 2);
+        ctx.strokeStyle = '#e53e3e'; ctx.lineWidth = 3; ctx.setLineDash([5, 3]); ctx.stroke(); ctx.setLineDash([]);
+      }
+    }
+  }
+  const unitAtTile = id => E.unitAt(state, id);
+
+  // ----- side panels ------------------------------------------------------------
+  function cardColor(key) {
+    const C = E.CARDS[key];
+    if (C.type in E.RESOURCES) return E.RESOURCES[C.type].color;
+    if (C.type === 'wild') return '#805ad5';
+    return C.effect.deploy ? '#2d3748' : '#319795';
+  }
+  function cardFace(c, extraClass = '') {
+    const C = E.CARDS[c.key];
+    const val = C.type in E.RESOURCES ? `${E.RESOURCES[C.type].icon} ${C.value}` :
+      C.type === 'wild' ? `✳ ${C.value}` : C.effect.deploy ? E.UNIT_TYPES[C.effect.deploy].symbol : '📜';
+    return `<div class="card ${extraClass}" data-card="${c.id}" style="border-color:${cardColor(c.key)}">
+      ${C.singleUse ? '<span class="tag">1×</span>' : ''}
+      <div class="cname" style="color:${cardColor(c.key)}">${C.name}</div>
+      <div class="cval">${val}</div>
+      <div class="cdesc">${E.cardDescription(c.key)}</div></div>`;
+  }
+
+  function refresh() {
+    const p = E.currentPlayer(state);
+    const human = !p.ai;
+    $('turnSwatch').style.background = p.color;
+    $('turnName').textContent = p.name + (p.ai ? ' (AI)' : '');
+    $('turnRound').textContent = `Round ${state.round}/${E.ROUND_LIMIT}`;
+    const other = state.players[1 - p.id];
+    $('turnMeta').innerHTML = state.players.map(pl =>
+      `<span style="color:${pl.color};font-weight:700">${pl.name}</span>: ${state.units.filter(u => u.owner === pl.id).length} units, ` +
+      `${E.depotsHeld(state, pl.id)} depots, hand ${E.handSize(state, pl.id)}`).join('<br>');
+
+    $('pools').innerHTML = E.POOL_TYPES.map(k =>
+      `<div class="pool" style="border-bottom:3px solid ${E.RESOURCES[k].color}"><b>${p.pools[k]}</b>${E.RESOURCES[k].icon} ${E.RESOURCES[k].name}</div>`).join('');
+
+    $('deckInfo').textContent = `deck ${p.deck.length} · discard ${p.discard.length} · played ${p.played.length}`;
+    if (human) {
+      $('hand').innerHTML = p.hand.map(c => cardFace(c, mode?.picks?.has(c.id) ? 'selected' : '')).join('') ||
+        '<span style="color:#a0aec0;font-size:0.8rem">No cards left in hand.</span>';
+      for (const el of $('hand').querySelectorAll('.card')) el.onclick = () => onCardClick(+el.dataset.card);
+    } else {
+      $('hand').innerHTML = `<span style="color:#718096;font-size:0.82rem">${p.name} (AI) is planning… ${p.hand.length} cards in hand.</span>`;
+    }
+    renderModeBanner();
+    $('playAllBtn').disabled = !human || !!mode;
+    $('discardBtn').disabled = !human || !!mode || !p.hand.length;
+    $('endTurnBtn').disabled = !human || !!mode || state.winner !== null;
+
+    $('buyNote').textContent = p.bought ? 'bought this turn' : `${p.pools.funds} funds in pool`;
+    $('market').innerHTML = Object.keys(state.market).map(k => {
+      const C = E.CARDS[k];
+      const pay = E.autoPayment(state, p.id, C.cost);
+      const can = human && !p.bought && state.market[k] > 0 && pay !== null && !mode;
+      return `<div class="mkt ${can ? '' : 'disabled'}" data-key="${k}" style="border-left-color:${cardColor(k)}">
+        <div><div class="nm">${C.name}${C.singleUse ? ' <span class="stock">(1×)</span>' : ''}</div><div class="ds">${E.cardDescription(k)}</div></div>
+        <div class="stock">×${state.market[k]}</div><div class="cost">💰${C.cost}</div></div>`;
+    }).join('');
+    for (const el of $('market').querySelectorAll('.mkt')) el.onclick = () => onBuy(el.dataset.key);
+
+    renderUnitInfo();
+    $('log').innerHTML = state.log.slice(-60).reverse().map(l => `<div>${l}</div>`).join('');
+    draw();
+    if (state.winner !== null) showWinner();
+  }
+
+  function renderModeBanner() {
+    const b = $('modeBanner');
+    if (!mode) { b.innerHTML = ''; return; }
+    if (mode.kind === 'wild') {
+      const C = E.CARDS[E.currentPlayer(state).hand.find(c => c.id === mode.cardId).key];
+      b.innerHTML = `<div class="mode-banner">${C.name}: add ${C.value} to which pool?
+        <div class="wild-pick">${E.POOL_TYPES.map(k => `<button data-pool="${k}" style="background:${E.RESOURCES[k].color}">${E.RESOURCES[k].icon}</button>`).join('')}
+        <button data-pool="" style="background:#718096">✕</button></div></div>`;
+      for (const el of b.querySelectorAll('button')) el.onclick = () => {
+        const as = el.dataset.pool;
+        const id = mode.cardId; mode = null;
+        if (as) act({ type: 'playCard', cardId: id, as }); else refresh();
+      };
+      return;
+    }
+    const label = mode.kind === 'trash'
+      ? `Select up to ${mode.max} card(s) to <b>trash</b> permanently, then confirm.`
+      : `Select cards to <b>discard</b>, then confirm.`;
+    b.innerHTML = `<div class="mode-banner">${label}<div class="ctrl-row">
+      <button id="mConfirm" class="${mode.kind === 'trash' ? 'danger' : ''}">Confirm (${mode.picks.size})</button>
+      <button id="mCancel" class="secondary">Cancel</button></div></div>`;
+    $('mConfirm').onclick = () => {
+      const picks = [...mode.picks], m = mode; mode = null;
+      if (m.kind === 'trash') act({ type: 'playCard', cardId: m.cardId, trash: picks });
+      else act({ type: 'discard', cardIds: picks });
+    };
+    $('mCancel').onclick = () => { mode = null; refresh(); };
+  }
+
+  function renderUnitInfo() {
+    const u = selectedUnit && E.unitById(state, selectedUnit);
+    if (!u) { $('unitInfo').innerHTML = '<span style="color:#a0aec0">Click one of your units.</span>'; return; }
+    const T = E.UNIT_TYPES[u.type];
+    const p = state.players[u.owner];
+    const t = state.tiles[u.tile];
+    $('unitInfo').innerHTML = `<b style="color:${p.color}">${T.symbol} ${T.name}</b> <span style="color:#718096">(${p.name})</span><br>
+      <span class="k">HP</span>${u.hp}/${T.hp}<br>
+      <span class="k">Atk / Def</span>${T.atk} / ${T.def}<br>
+      <span class="k">Range</span>${T.minRange === T.range ? T.range : T.minRange + '–' + T.range}<br>
+      <span class="k">Moves</span>${u.moved}/${T.maxMove} used · pays ${E.RESOURCES[T.moveRes].icon}<br>
+      <span class="k">Attack</span>${u.attacked ? 'done' : T.ammo + ' 💥'}<br>
+      <span class="k">Terrain</span>${E.TERRAIN[t.terrain].name}${t.depot ? ' (depot)' : ''}${t.hq !== null ? ' (HQ)' : ''}<br>
+      <div class="hint">${T.blurb}</div>`;
+  }
+
+  function showWinner() {
+    const w = state.winner >= 0 ? state.players[state.winner] : null;
+    $('overTitle').textContent = w ? `🏆 ${w.name} win!` : 'Stalemate';
+    $('overTitle').style.color = w ? w.color : '#2d3748';
+    $('overText').textContent = state.winReason;
+    $('overlay').style.display = 'flex';
+  }
+
+  // ----- interaction ------------------------------------------------------------
+  function act(action) {
+    const v = E.validateAction(state, action);
+    if (!v.ok) { flash(v.reason); refresh(); return false; }
+    E.applyAction(state, action);
+    if (selectedUnit && !E.unitById(state, selectedUnit)) selectedUnit = null;
+    if (action.type === 'endTurn') selectedUnit = null;
+    refresh();
+    if (action.type === 'endTurn') maybeRunAI();
+    return true;
+  }
+
+  function flash(msg) {
+    state.log.push(`⚠ ${msg}`);
+  }
+
+  function humanTurn() { return state && state.winner === null && !E.currentPlayer(state).ai && !aiRunning; }
+
+  function onCardClick(cardId) {
+    if (!humanTurn()) return;
+    const p = E.currentPlayer(state);
+    if (mode && (mode.kind === 'trash' || mode.kind === 'discard')) {
+      if (cardId === mode.cardId) return;
+      if (mode.picks.has(cardId)) mode.picks.delete(cardId);
+      else if (mode.kind !== 'trash' || mode.picks.size < mode.max) mode.picks.add(cardId);
+      refresh();
+      return;
+    }
+    const card = p.hand.find(c => c.id === cardId);
+    const C = E.CARDS[card.key];
+    if (C.type === 'wild') { mode = { kind: 'wild', cardId }; refresh(); return; }
+    if (C.effect?.trash) {
+      if (p.hand.length <= 1) { act({ type: 'playCard', cardId, trash: [] }); return; }
+      mode = { kind: 'trash', cardId, max: C.effect.trash, picks: new Set() };
+      refresh();
+      return;
+    }
+    act({ type: 'playCard', cardId });
+  }
+
+  function onBuy(key) {
+    if (!humanTurn() || mode) return;
+    const p = E.currentPlayer(state);
+    const C = E.CARDS[key];
+    const pay = E.autoPayment(state, p.id, C.cost);
+    if (pay === null) { flash(`Not enough to buy ${C.name}`); refresh(); return; }
+    if (pay.length) {
+      const names = pay.map(id => E.CARDS[p.hand.find(c => c.id === id).key].name).join(', ');
+      if (!confirm(`Buy ${C.name} (💰${C.cost})?\nUses your ${p.pools.funds} pooled funds plus: ${names}`)) return;
+    }
+    act({ type: 'buy', key, payWith: pay });
+  }
+
+  $('playAllBtn').onclick = () => {
+    if (!humanTurn()) return;
+    const p = E.currentPlayer(state);
+    for (const c of [...p.hand]) if (E.CARDS[c.key].type in E.RESOURCES) E.applyAction(state, { type: 'playCard', cardId: c.id });
+    refresh();
+  };
+  $('discardBtn').onclick = () => { if (humanTurn()) { mode = { kind: 'discard', picks: new Set() }; refresh(); } };
+  $('endTurnBtn').onclick = () => { if (humanTurn()) act({ type: 'endTurn' }); };
+  document.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape') { selectedUnit = null; mode = null; if (state) refresh(); }
+    if (ev.key === 'Enter' && humanTurn() && !mode && document.activeElement.tagName !== 'INPUT') act({ type: 'endTurn' });
+  });
+
+  canvas.addEventListener('click', ev => {
+    if (!humanTurn()) return;
+    const [px, py] = eventPos(ev);
+    const tid = tileAtPixel(px, py);
+    if (tid === null) return;
+    const occ = E.unitAt(state, tid);
+    const sel = selectedUnit && E.unitById(state, selectedUnit);
+    if (occ && occ.owner === state.current) { selectedUnit = occ.id === selectedUnit ? null : occ.id; refresh(); return; }
+    if (sel && occ && occ.owner !== state.current) { act({ type: 'attack', unitId: sel.id, targetId: occ.id }); return; }
+    if (sel && !occ) {
+      if (E.reachableTiles(state, sel.id).has(tid)) act({ type: 'move', unitId: sel.id, tileId: tid });
+      else {
+        const T = E.UNIT_TYPES[sel.type];
+        const pool = E.currentPlayer(state).pools[T.moveRes];
+        flash(pool ? `${T.name} cannot reach that tile this turn.` : `Play ${E.RESOURCES[T.moveRes].name} cards to move ${T.name}.`);
+        refresh();
+      }
+      return;
+    }
+    selectedUnit = null; refresh();
+  });
+
+  canvas.addEventListener('mousemove', ev => {
+    if (!state) return;
+    const [px, py] = eventPos(ev);
+    const tid = tileAtPixel(px, py);
+    if (tid !== hoverTile) { hoverTile = tid; draw(); }
+    const tip = $('tooltip');
+    if (tid === null) { tip.style.display = 'none'; return; }
+    const t = state.tiles[tid];
+    const T = E.TERRAIN[t.terrain];
+    let h = `<b>${T.name}</b>${t.hq !== null ? ` — ${state.players[t.hq].name} HQ` : ''}${t.depot ? ` — depot${t.owner !== null ? ' (' + state.players[t.owner].name + ')' : ' (neutral)'}` : ''}<br>
+      Move cost: 🥾 ${fmtCost(T.cost.foot)} · ⚙ ${fmtCost(T.cost.tracks)} · ✈ 1`;
+    const u = E.unitAt(state, tid);
+    if (u) {
+      const UT = E.UNIT_TYPES[u.type];
+      h += `<br><span style="color:${state.players[u.owner].color === '#c53030' ? '#feb2b2' : '#90cdf4'}">${UT.symbol} ${UT.name}</span> ${u.hp}/${UT.hp} HP`;
+      if (selectedUnit && E.attackTargets(state, selectedUnit).includes(u.id)) {
+        const pr = E.previewAttack(state, selectedUnit, u.id);
+        h += `<br>🎯 Attack: deal <b>${pr.damage}</b>${pr.kills ? ' (destroys)' : ''}, take <b>${pr.counter}</b>${pr.dies ? ' (you die!)' : ''}`;
+      }
+    }
+    const r = canvas.getBoundingClientRect();
+    tip.innerHTML = h;
+    tip.style.display = 'block';
+    tip.style.left = (ev.clientX - r.left + 22) + 'px';
+    tip.style.top = (ev.clientY - r.top + 14) + 'px';
+  });
+  canvas.addEventListener('mouseleave', () => { $('tooltip').style.display = 'none'; hoverTile = null; if (state) draw(); });
+
+  // ----- AI driver --------------------------------------------------------------
+  async function maybeRunAI() {
+    if (aiRunning) return;
+    aiRunning = true;
+    try {
+      let guard = 0;
+      while (state.winner === null && E.currentPlayer(state).ai && guard++ < 5000) {
+        const a = nextAIAction(state);
+        E.applyAction(state, a);
+        if (aiDelay && (a.type === 'move' || a.type === 'attack' || a.type === 'endTurn')) {
+          refresh();
+          await new Promise(r => setTimeout(r, aiDelay));
+        }
+      }
+    } finally {
+      aiRunning = false;
+      refresh();
+    }
+  }
+</script>
+</body>
+</html>

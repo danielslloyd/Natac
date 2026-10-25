@@ -35,6 +35,10 @@ src/
     types.js        # Resource enum, BUILDING_COSTS, TileShape
   api/
     index.js
+blitz.html          # Natac: Blitz — deck-building WW2 conquest mode (see BLITZ_MODE.md)
+src/blitz/
+  engine.js         # map gen (hex + Voronoi poly), cards/market, movement, combat
+  ai.js             # nextAIAction / playAITurn heuristic AI
 mapgen.js           # window.generateMapData — visualization-layer map generator
 ```
 
