@@ -2,11 +2,19 @@
 
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
 import {
   generateMap,
   validateMap,
   createGame
 } from '../api/index.js';
+
+// src/mapgen.js is a classic browser script (index.html loads it with a
+// <script> tag) that publishes window.generateMapData. Run it the same way
+// here so the map bridge can find it under Node.
+globalThis.window ??= globalThis;
+vm.runInThisContext(readFileSync(new URL('../mapgen.js', import.meta.url), 'utf8'), { filename: 'mapgen.js' });
 
 describe('Map Generation', () => {
   test('Standard Catan map should generate 19 tiles', () => {

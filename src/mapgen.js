@@ -754,6 +754,26 @@ function findPointsWithinDistance(targetIndices, connectionDistance) {
 // ============================================================================
 
 // Generate map data for game logic
+// True if every tile in `landTiles` other than `removed` is still reachable
+// from the others once `removed` is taken away.
+function landStaysConnectedWithout(landTiles, removed) {
+    let start = null;
+    for (const t of landTiles) { if (t !== removed) { start = t; break; } }
+    if (start === null) return true;
+    const seen = new Set([start]);
+    const stack = [start];
+    while (stack.length) {
+        const cur = stack.pop();
+        for (const n of tileNeighbors[cur]) {
+            if (n !== removed && landTiles.has(n) && !seen.has(n)) {
+                seen.add(n);
+                stack.push(n);
+            }
+        }
+    }
+    return seen.size === landTiles.size - 1;
+}
+
 function generateMapData(mapType, numTiles, erosionRounds) {
     // Reset global state
     points = [];
@@ -919,15 +939,18 @@ function generateMapData(mapType, numTiles, erosionRounds) {
 
         if (shoreTiles.length === 0) break;
 
-        let closestShore = shoreTiles[0];
-        let minDist = distance(points[rootTile], points[closestShore]);
+        // Erode the shore tile closest to the root, but never one whose
+        // removal would split the land into disconnected islands.
+        let closestShore = null;
+        let minDist = Infinity;
         for (const tile of shoreTiles) {
             const dist = distance(points[rootTile], points[tile]);
-            if (dist < minDist) {
+            if (dist < minDist && tile !== rootTile && landStaysConnectedWithout(landTiles, tile)) {
                 minDist = dist;
                 closestShore = tile;
             }
         }
+        if (closestShore === null) break;
 
         landTiles.delete(closestShore);
 
