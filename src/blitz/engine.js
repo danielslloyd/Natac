@@ -560,11 +560,19 @@ function canTarget(state, attacker, defender) {
   return d >= A.minRange && d <= A.range;
 }
 
+// Enemies this unit could hit from where it stands, ignoring ammo and
+// whether it has already attacked (used for UI hints).
+export function targetsInRange(state, unitId) {
+  const u = unitById(state, unitId);
+  if (!u) return [];
+  return state.units.filter(e => e.owner !== u.owner && canTarget(state, u, e)).map(e => e.id);
+}
+
 export function attackTargets(state, unitId) {
   const u = unitById(state, unitId);
   if (!u || u.owner !== state.current || u.attacked || state.winner !== null) return [];
   if (state.players[u.owner].pools.ammo < UNIT_TYPES[u.type].ammo) return [];
-  return state.units.filter(e => e.owner !== u.owner && canTarget(state, u, e)).map(e => e.id);
+  return targetsInRange(state, unitId);
 }
 
 function hpScale(u) { return 0.5 + 0.5 * u.hp / UNIT_TYPES[u.type].hp; }

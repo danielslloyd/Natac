@@ -12,6 +12,31 @@ the cards in your hand let them.
 
 Each seat can be a human or the AI (hotseat, vs AI, or AI vs AI).
 
+## Playing in the browser
+
+The page is built to show you what you can do at every step:
+
+- **Coach bar** (top): always shows the single most useful next step, e.g.
+  "play supply cards", "Armor needs ⛽ Fuel, so play a highlighted card", or "all
+  done, end your turn".
+- **Your orders**: a four-step checklist (play cards → move & attack → buy →
+  end turn) that ticks off as you go.
+- **Your army**: every unit with a status chip: `move N`, `🎯 targets`,
+  `needs ⛽`, `in range · needs 💥`. Click a row to select the unit.
+- **Board**: a green dot on a unit means it can move, a red dot means it can
+  attack. When a unit is selected, green tiles show move costs, red rings show
+  targets (faint rings are in range but need ammo), and hovering shows the exact
+  damage you'll deal and take. Arrows show what the opponent did last turn.
+- **Hand**: cards that the selected unit needs glow gold. A wild card asks
+  which pool to fill, and trash/discard/buy-with-cards open a confirm bar.
+- **Market**: items are grouped as Supplies / Command / Reinforcements, with a
+  `can buy` badge and a tooltip saying why an item isn't affordable.
+- **End turn** asks again if units can still act or a purchase is still possible.
+- **Hotseat**: with two human players, a hand-off screen hides each hand
+  between turns.
+- **Shortcuts**: `P` play all supplies · `Tab` next ready unit · `Enter` end
+  turn · `Esc` cancel · `?` help.
+
 ## Maps
 
 The rules run on a tile graph, so both map types play the same way:
